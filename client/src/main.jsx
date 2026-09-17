@@ -3,7 +3,7 @@ import {createRoot} from 'react-dom/client';
 import {Search,Settings,Home as HomeIcon,Plus,Info,Play,ChevronLeft,ChevronRight,Heart,Download,Eye,Clock3,SlidersHorizontal,ArrowLeft,Share2,Check,UserRound,Film,MonitorPlay,Menu,X,ExternalLink,Volume2,Maximize,RotateCcw} from 'lucide-react';
 import './styles.css';
 
-const API=import.meta.env.VITE_API_URL||'http://localhost:4000/api';
+const API=import.meta.env.VITE_API_URL||'https://flixstar-api.onrender.com/api';
 const IMG=(p,size='w500')=>p?`https://image.tmdb.org/t/p/${size}${p}`:'';
 const BG=(p)=>p?`https://image.tmdb.org/t/p/original${p}`:'';
 const year=x=>(x?.release_date||x?.first_air_date||'').slice(0,4);
