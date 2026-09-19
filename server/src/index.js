@@ -335,7 +335,9 @@ app.get('/api/discover',safe(async(req,res)=>{
   const type=req.query.type==='tv'?'tv':'movie';
 
   const preset=
-    PRESETS[req.query.preset]?.[type]||{};
+    req.query.preset
+      ? await presetParams(type,req.query.preset)
+      : {};
 
   const params={
     ...preset,
@@ -464,14 +466,26 @@ app.get('/api/movie/:id',safe(async(req,res)=>{
   const id=req.params.id;
 
   const [details,credits,videos,images,recommendations]=await Promise.all([
-    tmdb(`/movie/${id}`),
-    tmdb(`/movie/${id}/credits`),
-    tmdb(`/movie/${id}/videos`),
-    tmdb(`/movie/${id}/images`,{
-      include_image_language:'en,null'
-    }),
-    tmdb(`/movie/${id}/recommendations`)
-  ]);
+  tmdb(`/movie/${id}`),
+  tmdb(`/movie/${id}/credits`),
+  tmdb(`/movie/${id}/videos`),
+  tmdb(`/movie/${id}/images`,{
+    include_image_language:'en,null'
+  }),
+  tmdb(`/movie/${id}/recommendations`)
+]);
+
+let collection=null;
+
+if(details.belongs_to_collection?.id){
+  try{
+    collection=await tmdb(
+      `/collection/${details.belongs_to_collection.id}`
+    );
+  }catch{
+    collection=null;
+  }
+}
 
   const trailer=
     (videos.results||[]).find(v=>
@@ -511,7 +525,9 @@ app.get('/api/movie/:id',safe(async(req,res)=>{
 
     logo_path:logo?.file_path||null,
 
-    recommendations
+    recommendations,
+
+    collection
   });
 }));
 app.get('/api/tv/:id',safe(async(req,res)=>{

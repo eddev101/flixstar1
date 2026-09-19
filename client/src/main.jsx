@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {Search,Settings,Home as HomeIcon,Plus,Info,Play,ChevronLeft,ChevronRight,Heart,Download,Eye,Clock3,CalendarDays,SlidersHorizontal,ArrowLeft,Share2,Check,UserRound,Film,MonitorPlay,Menu,X,ExternalLink,Volume2,Maximize,RotateCcw,Dices,ChevronDown} from 'lucide-react';
+import {Search,Settings,Home as HomeIcon,Plus,Info,Play,ChevronLeft,ChevronRight,Heart,Download,Eye,Clock3,CalendarDays,SlidersHorizontal,ArrowLeft,Share2,Check,UserRound,Bell,Film,MonitorPlay,Menu,X,ExternalLink,Volume2,Maximize,RotateCcw,Dices,ChevronDown,List} from 'lucide-react';
 import './styles.css';
 
 const API=import.meta.env.VITE_API_URL||(import.meta.env.DEV?'http://localhost:4000/api':'https://flixstar-api.onrender.com/api');
@@ -41,9 +41,168 @@ function useRoute(){const [path,setPath]=useState(location.pathname+location.sea
 function App(){
  const {path,nav}=useRoute(); const [query,setQuery]=useState(''); const [menu,setMenu]=useState(false);
  const goSearch=e=>{e.preventDefault();if(query.trim())nav(`/search?q=${encodeURIComponent(query.trim())}`)};
- const [lists,setLists]=useState(()=>JSON.parse(localStorage.getItem('flixstar-lists')||'[]'));
- const toggleList=item=>{setLists(prev=>{const exists=prev.some(x=>x.id===item.id&&mediaType(x)===mediaType(item));const n=exists?prev.filter(x=>!(x.id===item.id&&mediaType(x)===mediaType(item))):[...prev,item];localStorage.setItem('flixstar-lists',JSON.stringify(n));return n})};
- const isListed=item=>lists.some(x=>x.id===item.id&&mediaType(x)===mediaType(item));
+const [lists,setLists]=useState(()=>{
+  try{
+    const saved=JSON.parse(
+      localStorage.getItem('flixstar-lists')||'[]'
+    );
+
+    if(!Array.isArray(saved))return [];
+
+    // New list format
+    if(
+      saved.length &&
+      Array.isArray(saved[0]?.items)
+    ){
+      return saved;
+    }
+
+    // Migrate the old single flat list automatically
+    if(saved.length){
+      return [{
+        id:'my-list',
+        name:'My List',
+        items:saved
+      }];
+    }
+
+    return [];
+  }catch{
+    return [];
+  }
+});
+
+useEffect(()=>{
+  localStorage.setItem(
+    'flixstar-lists',
+    JSON.stringify(lists)
+  );
+},[lists]);
+
+
+const toggleList=item=>{
+  setLists(prev=>{
+    const base=prev.length
+      ? prev
+      : [{
+          id:'my-list',
+          name:'My List',
+          items:[]
+        }];
+
+    // Remember which list the user selected
+    const activeId=
+      localStorage.getItem('flixstar-active-list') ||
+      base[0].id;
+
+    const target=
+      base.find(list=>list.id===activeId) ||
+      base[0];
+
+    const exists=target.items?.some(
+      x=>
+        x.id===item.id &&
+        mediaType(x)===mediaType(item)
+    );
+
+    return base.map(list=>{
+      if(list.id!==target.id)return list;
+
+      return {
+        ...list,
+        items:exists
+          ? (list.items||[]).filter(
+              x=>!(
+                x.id===item.id &&
+                mediaType(x)===mediaType(item)
+              )
+            )
+          : [
+              ...(list.items||[]),
+              item
+            ]
+      };
+    });
+  });
+};
+
+
+const isListed=item=>
+  lists.some(list=>
+    (list.items||[]).some(
+      x=>
+        x.id===item.id &&
+        mediaType(x)===mediaType(item)
+    )
+  );
+
+
+const createList=name=>{
+  const clean=name.trim();
+
+  if(!clean)return null;
+
+  const id=
+    `list-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2,8)}`;
+
+  const next={
+    id,
+    name:clean,
+    items:[]
+  };
+
+  setLists(prev=>[
+    ...prev,
+    next
+  ]);
+
+  localStorage.setItem(
+    'flixstar-active-list',
+    id
+  );
+
+  return next;
+};
+
+
+const deleteList=listId=>{
+  setLists(prev=>
+    prev.filter(
+      list=>list.id!==listId
+    )
+  );
+
+  if(
+    localStorage.getItem(
+      'flixstar-active-list'
+    )===listId
+  ){
+    localStorage.removeItem(
+      'flixstar-active-list'
+    );
+  }
+};
+
+
+const removeFromList=(item,listId)=>{
+  setLists(prev=>
+    prev.map(list=>
+      list.id!==listId
+        ? list
+        : {
+            ...list,
+            items:(list.items||[]).filter(
+              x=>!(
+                x.id===item.id &&
+                mediaType(x)===mediaType(item)
+              )
+            )
+          }
+    )
+  );
+};
  if(path.startsWith('/watch/')){
   const [, , type, id] = location.pathname.split('/');
   return <Watch titleId={id} type={type} nav={nav}/>;
@@ -72,12 +231,33 @@ if(path.startsWith('/shows') || path.startsWith('/tv'))
     toggleList={toggleList}
 />;
  if(path.startsWith('/provider/')){const parts=path.split('/');const id=parts[2];const name=new URLSearchParams(location.search).get('name')||'Provider';return <ProviderPage id={id} name={name} nav={nav}/>;}
- if(path==='/my-list')return <MyList items={lists} nav={nav} toggle={toggleList}/>;
+if(path==='/my-list')
+  return <MyList
+    lists={lists}
+    nav={nav}
+    createList={createList}
+    deleteList={deleteList}
+    removeFromList={removeFromList}
+/>;
  if(path==='/settings')return <SettingsPage nav={nav}/>;
- return <><Home nav={nav} listed={isListed} toggleList={toggleList}/><Footer nav={nav}/></>;
+ return <><Home
+  nav={nav}
+  listed={isListed}
+  toggleList={toggleList}
+  menu={menu}
+  setMenu={setMenu}
+/><Footer nav={nav}/></>;
 }
 
-function SiteNav({nav,query='',setQuery,onSearch,active,menu,setMenu}){
+function SiteNav({
+  nav,
+  query='',
+  setQuery,
+  onSearch,
+  active
+}){
+  const [menuOpen,setMenuOpen]=useState(false);
+
   const handleSubmit=e=>{
     e.preventDefault();
 
@@ -93,41 +273,61 @@ function SiteNav({nav,query='',setQuery,onSearch,active,menu,setMenu}){
     }else{
       nav('/search');
     }
+
+    setMenuOpen(false);
+  };
+
+  const goTo=path=>{
+    setMenuOpen(false);
+    nav(path);
   };
 
   return (
     <header className="site-nav">
-      <button className="brand" onClick={()=>nav('/')} aria-label="Flixstar">
-        <span className="brand-mark">✦</span>
+
+      <button 
+        className="brand" 
+        onClick={()=>goTo('/')} 
+        aria-label="Flixstar"
+      >
+        <img 
+          src="/flixstar-logo.png" 
+          alt="Flixstar"
+          className="brand-logo"
+        />
       </button>
 
       <div className="desktop-nav">
+
         <NavItem
           icon={<HomeIcon/>}
           text="Home"
           active={active==='home'}
-          onClick={()=>nav('/')}
+          onClick={()=>goTo('/')}
         />
 
         <NavItem
           text="Movies"
           active={active==='movies'}
-          onClick={()=>nav('/movies')}
+          onClick={()=>goTo('/movies')}
         />
 
         <NavItem
           text="Shows"
           active={active==='shows'}
-          onClick={()=>nav('/shows')}
+          onClick={()=>goTo('/shows')}
         />
 
         <NavItem
           text="My List"
           active={active==='list'}
-          onClick={()=>nav('/my-list')}
+          onClick={()=>goTo('/my-list')}
         />
 
-        <form className="nav-search" onSubmit={handleSubmit}>
+        <form
+          className="nav-search"
+          onSubmit={handleSubmit}
+        >
           <Search size={19}/>
 
           <input
@@ -137,33 +337,81 @@ function SiteNav({nav,query='',setQuery,onSearch,active,menu,setMenu}){
             aria-label="Search"
           />
 
-          <button aria-label="search" type="submit"/>
+          <button
+            aria-label="search"
+            type="submit"
+          />
         </form>
 
-        <button className="nav-icon" onClick={()=>nav('/settings')}>
+        <button
+          className="nav-icon"
+          onClick={()=>goTo('/settings')}
+        >
           <Settings size={19}/>
         </button>
+
       </div>
 
       <button
         className="mobile-menu"
-        onClick={()=>setMenu?.(!menu)}
+        onClick={()=>setMenuOpen(prev=>!prev)}
+        aria-label={menuOpen?'Close menu':'Open menu'}
+        aria-expanded={menuOpen}
+        type="button"
       >
-        {menu?<X/>:<Menu/>}
+        {menuOpen ? <X size={24}/> : <Menu size={24}/>}
       </button>
 
-      {menu&&(
+      {menuOpen && (
         <div className="mobile-nav">
-          <button onClick={()=>nav('/')}>Home</button>
-          <button onClick={()=>nav('/movies')}>Movies</button>
-          <button onClick={()=>nav('/shows')}>Shows</button>
-          <button onClick={()=>nav('/my-list')}>My List</button>
-          <button onClick={()=>nav('/settings')}>Settings</button>
+
+          <button
+            type="button"
+            onClick={()=>goTo('/')}
+          >
+            Home
+          </button>
+
+          <button
+            type="button"
+            onClick={()=>goTo('/movies')}
+          >
+            Movies
+          </button>
+
+          <button
+            type="button"
+            onClick={()=>goTo('/shows')}
+          >
+            Shows
+          </button>
+
+          <button
+            type="button"
+            onClick={()=>goTo('/my-list')}
+          >
+            My List
+          </button>
+
+          <button
+            type="button"
+            onClick={()=>goTo('/settings')}
+          >
+            Settings
+          </button>
+
+          <button type="button" onClick={()=>goTo('/search')}>
+            Search
+          </button>
+
         </div>
       )}
+
     </header>
   );
 }
+
+
 function NavItem({icon,text,active,onClick}){return <button className={`nav-pill ${active?'active':''}`} onClick={onClick}>{icon}{text}</button>}
 
 function readWatchProgress(){
@@ -233,7 +481,7 @@ function formatTime(seconds){
   return `${m}:${String(s).padStart(2,'0')}`;
 }
 
-function Home({nav,listed,toggleList}){
+function Home({nav,listed,toggleList,menu,setMenu}){
   const [d,setD]=useState(null);
   const [apiError,setApiError]=useState(false);
   const [hero,setHero]=useState(0);
@@ -568,27 +816,238 @@ function ProviderSwitchShelf({title,type,defaultProvider,nav}){
   </section>;
 }
 function ProviderPage({id,name,nav}){
+
   const [movies,setMovies]=useState({results:[]});
   const [shows,setShows]=useState({results:[]});
-  const [loading,setLoading]=useState(true);
+
+  const [moviePage,setMoviePage]=useState(1);
+  const [showPage,setShowPage]=useState(1);
+
+  const [loadingMovies,setLoadingMovies]=useState(true);
+  const [loadingShows,setLoadingShows]=useState(true);
+
+  const loadMovies=async(page)=>{
+    setLoadingMovies(true);
+
+    try{
+      const data=await apiFetch(
+        `/discover?type=movie&provider=${encodeURIComponent(id)}&page=${page}`
+      );
+
+      setMovies(data);
+    }catch{
+      setMovies({results:[]});
+    }finally{
+      setLoadingMovies(false);
+    }
+  };
+
+  const loadShows=async(page)=>{
+    setLoadingShows(true);
+
+    try{
+      const data=await apiFetch(
+        `/discover?type=tv&provider=${encodeURIComponent(id)}&page=${page}`
+      );
+
+      setShows(data);
+    }catch{
+      setShows({results:[]});
+    }finally{
+      setLoadingShows(false);
+    }
+  };
+
   useEffect(()=>{
-    let cancelled=false;
-    setLoading(true);
-    Promise.all([
-      apiFetch(`/discover?type=movie&provider=${encodeURIComponent(id)}&page=1`),
-      apiFetch(`/discover?type=tv&provider=${encodeURIComponent(id)}&page=1`)
-    ]).then(([m,t])=>{if(!cancelled){setMovies(m);setShows(t);setLoading(false)}}).catch(()=>{if(!cancelled)setLoading(false)});
-    return()=>{cancelled=true};
+    setMoviePage(1);
+    setShowPage(1);
+
+    loadMovies(1);
+    loadShows(1);
   },[id]);
-  return <><SiteNav nav={nav}/>
-    <main className="provider-page">
-      <button className="provider-back" onClick={()=>nav('/')}><ArrowLeft size={17}/> Home</button>
-      <div className="provider-page-head"><div><div className="detail-label">STREAMING PROVIDER</div><h1>{name}</h1><p>Movies and TV series available on {name}.</p></div></div>
-      {loading?<div className="provider-loading"><div className="spinner"/><p>Loading {name} titles…</p></div>:<>
-        <section className="provider-results"><div className="section-heading"><h2>Movies on {name}</h2></div>{movies.results?.length?<div className="poster-grid">{movies.results.map((x,i)=><Poster item={x} nav={nav} key={`m-${x.id}-${i}`}/>)}</div>:<p className="provider-empty">No movies found.</p>}</section>
-        <section className="provider-results"><div className="section-heading"><h2>TV Series on {name}</h2></div>{shows.results?.length?<div className="poster-grid">{shows.results.map((x,i)=><Poster item={x} nav={nav} key={`t-${x.id}-${i}`}/>)}</div>:<p className="provider-empty">No TV series found.</p>}</section>
-      </>}
-    </main><Footer nav={nav}/></>;
+
+  useEffect(()=>{
+    if(moviePage===1)return;
+    loadMovies(moviePage);
+  },[moviePage]);
+
+  useEffect(()=>{
+    if(showPage===1)return;
+    loadShows(showPage);
+  },[showPage]);
+
+  const movieTotalPages=Math.min(
+    Number(movies.total_pages||1),
+    500
+  );
+
+  const showTotalPages=Math.min(
+    Number(shows.total_pages||1),
+    500
+  );
+
+  return (
+    <>
+      <SiteNav nav={nav}/>
+
+      <main className="provider-page">
+
+        <button
+          className="provider-back"
+          onClick={()=>nav('/')}
+        >
+          <ArrowLeft size={17}/>
+          Home
+        </button>
+
+        <div className="provider-page-head">
+          <div>
+            <div className="detail-label">
+              STREAMING PROVIDER
+            </div>
+
+            <h1>{name}</h1>
+
+            <p>
+              Movies and TV series available on {name}.
+            </p>
+          </div>
+        </div>
+
+        {/* ================= MOVIES ================= */}
+
+        <section className="provider-results">
+
+          <div className="section-heading">
+            <h2>Movies on {name}</h2>
+          </div>
+
+          {loadingMovies ? (
+
+            <div className="provider-loading">
+              <div className="spinner"/>
+              <p>Loading movies…</p>
+            </div>
+
+          ) : movies.results?.length ? (
+
+            <>
+              <div className="poster-grid">
+                {movies.results.map((x,i)=>(
+                  <Poster
+                    item={x}
+                    nav={nav}
+                    key={`m-${x.id}-${i}`}
+                  />
+                ))}
+              </div>
+
+              {movieTotalPages>1 && (
+                <div className="provider-pagination">
+
+                  <button
+                    disabled={moviePage<=1}
+                    onClick={()=>setMoviePage(p=>p-1)}
+                  >
+                    ← Previous
+                  </button>
+
+                  <span>
+                    Page {moviePage} of {movieTotalPages}
+                  </span>
+
+                  <button
+                    disabled={moviePage>=movieTotalPages}
+                    onClick={()=>setMoviePage(p=>p+1)}
+                  >
+                    Next →
+                  </button>
+
+                </div>
+              )}
+
+            </>
+
+          ) : (
+
+            <p className="provider-empty">
+              No movies found.
+            </p>
+
+          )}
+
+        </section>
+
+
+        {/* ================= TV ================= */}
+
+        <section className="provider-results">
+
+          <div className="section-heading">
+            <h2>TV Series on {name}</h2>
+          </div>
+
+          {loadingShows ? (
+
+            <div className="provider-loading">
+              <div className="spinner"/>
+              <p>Loading TV series…</p>
+            </div>
+
+          ) : shows.results?.length ? (
+
+            <>
+              <div className="poster-grid">
+                {shows.results.map((x,i)=>(
+                  <Poster
+                    item={x}
+                    nav={nav}
+                    key={`t-${x.id}-${i}`}
+                  />
+                ))}
+              </div>
+
+              {showTotalPages>1 && (
+                <div className="provider-pagination">
+
+                  <button
+                    disabled={showPage<=1}
+                    onClick={()=>setShowPage(p=>p-1)}
+                  >
+                    ← Previous
+                  </button>
+
+                  <span>
+                    Page {showPage} of {showTotalPages}
+                  </span>
+
+                  <button
+                    disabled={showPage>=showTotalPages}
+                    onClick={()=>setShowPage(p=>p+1)}
+                  >
+                    Next →
+                  </button>
+
+                </div>
+              )}
+
+            </>
+
+          ) : (
+
+            <p className="provider-empty">
+              No TV series found.
+            </p>
+
+          )}
+
+        </section>
+
+      </main>
+
+      <Footer nav={nav}/>
+    </>
+  );
 }
 
 function ProviderShelf({nav}){
@@ -693,14 +1152,128 @@ function Poster({item,nav,wide=false}){
 function RecommendationsPage({type,id,nav}){
   const [data,setData]=useState({results:[]});
   const [source,setSource]=useState(null);
+  const [page,setPage]=useState(1);
+  const [loading,setLoading]=useState(true);
+
   useEffect(()=>{
     let cancelled=false;
-    Promise.all([apiFetch(`/recommendations?type=${type}&id=${id}`),apiFetch(`/${type}/${id}`)])
-      .then(([r,d])=>{if(!cancelled){setData(r);setSource(d)}})
-      .catch(()=>{});
-    return()=>{cancelled=true};
-  },[type,id]);
-  return <><SiteNav nav={nav} active={type==='tv'?'shows':'movies'} query="" setQuery={()=>{}} onSearch={()=>{}} menu={false} setMenu={()=>{}}/><main className="listing-page"><PageTitle title={source?`Because you watched ${title(source)}`:'Recommended for you'} subtitle={source?`More movies and series based on ${title(source)}.`:''}/><div className="poster-grid">{data.results?.map((x,i)=><Poster item={x} nav={nav} key={`${x.id}-${i}`}/>)}</div></main><Footer nav={nav}/></>
+
+    setLoading(true);
+
+    Promise.all([
+      apiFetch(`/recommendations?type=${type}&id=${id}&page=${page}`),
+      page===1 ? apiFetch(`/${type}/${id}`) : Promise.resolve(null)
+    ])
+      .then(([r,d])=>{
+        if(!cancelled){
+          setData(r);
+          if(d)setSource(d);
+          setLoading(false);
+        }
+      })
+      .catch(()=>{
+        if(!cancelled){
+          setData({results:[]});
+          setLoading(false);
+        }
+      });
+
+    return()=>{
+      cancelled=true;
+    };
+  },[type,id,page]);
+
+  const totalPages=Math.min(Number(data.total_pages||1),500);
+
+  return (
+    <>
+      <SiteNav
+        nav={nav}
+        active={type==='tv'?'shows':'movies'}
+        query=""
+        setQuery={()=>{}}
+        onSearch={()=>{}}
+      />
+
+      <main className="listing-page">
+
+        <PageTitle
+          title={
+            source
+              ? `Because you watched ${title(source)}`
+              : 'Recommended for you'
+          }
+          subtitle={
+            source
+              ? `More movies and series based on ${title(source)}.`
+              : ''
+          }
+        />
+
+        {loading ? (
+          <div className="listing-loading">
+            <div className="spinner"/>
+          </div>
+        ) : data.results?.length ? (
+          <>
+            <div className="poster-grid">
+              {data.results.map((x,i)=>(
+                <Poster
+                  item={x}
+                  nav={nav}
+                  key={`${x.id}-${i}`}
+                />
+              ))}
+            </div>
+
+            {totalPages>1 && (
+              <div className="provider-pagination">
+
+                <button
+                  disabled={page<=1}
+                  onClick={()=>{
+                    setPage(p=>Math.max(1,p-1));
+                    window.scrollTo({
+                      top:0,
+                      behavior:'smooth'
+                    });
+                  }}
+                >
+                  ← Previous
+                </button>
+
+                <span>
+                  Page {page} of {totalPages}
+                </span>
+
+                <button
+                  disabled={page>=totalPages}
+                  onClick={()=>{
+                    setPage(p=>Math.min(totalPages,p+1));
+                    window.scrollTo({
+                      top:0,
+                      behavior:'smooth'
+                    });
+                  }}
+                >
+                  Next →
+                </button>
+
+              </div>
+            )}
+
+          </>
+        ) : (
+          <p className="empty-state">
+            No recommendations found.
+          </p>
+        )}
+
+      </main>
+
+      <Footer nav={nav}/>
+    </>
+  );
 }
 
 function UpcomingMovies({nav}){
@@ -1253,10 +1826,11 @@ function Listing({
 
   const [filter,setFilter]=useState({
     genre:params.get('genre')||'',
-    sort:params.get('sort')||'popularity.desc',
+    sort:params.get('sort')||'',
     year:params.get('year')||'',
     country:params.get('country')||'',
-    provider:params.get('provider')||''
+    provider:params.get('provider')||'',
+    preset:params.get('preset')||''
   });
 
   const [data,setData]=useState({results:[]});
@@ -1601,16 +2175,68 @@ function SearchPage({q,nav}){
   const [trending,setTrending]=useState([]);
   const [loading,setLoading]=useState(false);
 
+  const [searchBackgrounds,setSearchBackgrounds]=useState([]);
+  const [searchBgIndex,setSearchBgIndex]=useState(0);
+
   /* Load Trending Today */
-  useEffect(()=>{
-    apiFetch('/trending')
-      .then(data=>{
-        setTrending(data.results||[]);
-      })
-      .catch(()=>{
-        setTrending([]);
-      });
-  },[]);
+  /* Load Trending Today + background images */
+useEffect(()=>{
+  let cancelled=false;
+
+  apiFetch('/trending')
+    .then(data=>{
+      if(cancelled)return;
+
+      const items=data.results||[];
+
+      setTrending(items);
+
+      const backgrounds=[
+        ...new Map(
+          items
+            .filter(x=>x.backdrop_path)
+            .map(x=>[
+              x.backdrop_path,
+              BG(x.backdrop_path)
+            ])
+        ).values()
+      ].slice(0,8);
+
+      setSearchBackgrounds(backgrounds);
+    })
+    .catch(()=>{
+      if(cancelled){
+        return;
+      }
+
+      setTrending([]);
+      setSearchBackgrounds([]);
+    });
+
+  return()=>{
+    cancelled=true;
+  };
+},[]);
+
+/* Rotate search page background */
+useEffect(()=>{
+  if(searchBackgrounds.length<=1){
+    return;
+  }
+
+  const timer=setInterval(()=>{
+    setSearchBgIndex(prev=>
+      (prev+1)%searchBackgrounds.length
+    );
+  },8000);
+
+  return()=>{
+    clearInterval(timer);
+  };
+},[searchBackgrounds.length]);
+
+const searchBg=
+  searchBackgrounds[searchBgIndex]||'';
 
   /* Live search */
   useEffect(()=>{
@@ -1650,7 +2276,28 @@ function SearchPage({q,nav}){
     .filter(x=>x.media_type==='movie'||x.media_type==='tv');
 
   return (
-    <main className="search-page">
+  <main
+    className="search-page"
+    style={
+      searchBg
+        ? {
+            backgroundImage:
+              `linear-gradient(
+                180deg,
+                rgba(4,10,8,.58) 0%,
+                rgba(4,10,8,.72) 38%,
+                rgba(4,10,8,.96) 100%
+              ),
+              linear-gradient(
+                90deg,
+                rgba(3,9,7,.48),
+                rgba(3,9,7,.22)
+              ),
+              url(${searchBg})`
+          }
+        : undefined
+    }
+  >
 
       <section className="search-hero">
 
@@ -1660,8 +2307,6 @@ function SearchPage({q,nav}){
           setQuery={setSearch}
           onSearch={e=>e.preventDefault()}
           active=""
-          menu={false}
-          setMenu={()=>{}}
         />
 
         <div className="search-hero-content">
@@ -2042,20 +2687,28 @@ function Detail({type,id,nav,listed,toggleList}){
   }
 
   {type==='movie'&&d.trailers?.length>0&&
-    <TrailerSection
-      trailers={d.trailers}
-      onOpen={setTrailerOpen}
-    />
-  }
-
-  <Recommendation
-    title="You Might Also Like"
-    items={d.recommendations?.results?.length
-      ? d.recommendations.results
-      : d.similar?.results||[]
-    }
-    nav={nav}
+  <TrailerSection
+    trailers={d.trailers}
+    onOpen={setTrailerOpen}
   />
+}
+
+{type==='movie'&&d.collection&&
+  <CollectionRow
+    collection={d.collection}
+    nav={nav}
+    currentId={d.id}
+  />
+}
+
+<Recommendation
+  title="You Might Also Like"
+  items={d.recommendations?.results?.length
+    ? d.recommendations.results
+    : d.similar?.results||[]
+  }
+  nav={nav}
+/>
 </section>
 
 {trailerOpen&&(
@@ -2101,6 +2754,7 @@ function Episodes({d,nav}){
   const [season,setSeason]=useState(1);
   const [eps,setEps]=useState([]);
   const [sort,setSort]=useState('oldest');
+  const [ratingsOpen,setRatingsOpen]=useState(false);
 
   useEffect(()=>{
     apiFetch(`/tv/${d.id}/season/${season}`)
@@ -2122,7 +2776,10 @@ function Episodes({d,nav}){
 
         <div className="episode-controls">
 
-          <button className="episode-control">
+          <button
+            className="episode-control"
+            onClick={()=>setRatingsOpen(true)}
+          >
             <SlidersHorizontal size={15}/>
             Ratings
           </button>
@@ -2207,10 +2864,314 @@ function Episodes({d,nav}){
           </button>
         ))}
       </div>
-
+      {ratingsOpen&&(
+        <EpisodeRatings
+          d={d}
+          onClose={()=>setRatingsOpen(false)}
+        />
+      )}
     </section>
   );
 }
+
+function EpisodeRatings({d,onClose}){
+
+  const [seasons,setSeasons]=useState({});
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    let cancelled=false;
+
+    async function loadRatings(){
+
+      setLoading(true);
+
+      try{
+
+        const total=d.number_of_seasons||1;
+
+        const results=await Promise.all(
+          Array.from(
+            {length:total},
+            (_,i)=>
+              apiFetch(`/tv/${d.id}/season/${i+1}`)
+                .then(data=>({
+                  season:i+1,
+                  episodes:data.episodes||[]
+                }))
+                .catch(()=>({
+                  season:i+1,
+                  episodes:[]
+                }))
+          )
+        );
+
+        if(cancelled)return;
+
+        const mapped={};
+
+        results.forEach(item=>{
+          mapped[item.season]=item.episodes;
+        });
+
+        setSeasons(mapped);
+
+      }finally{
+
+        if(!cancelled){
+          setLoading(false);
+        }
+
+      }
+    }
+
+    loadRatings();
+
+    return()=>{
+      cancelled=true;
+    };
+
+  },[d.id,d.number_of_seasons]);
+
+
+  const maxEpisodes=Math.max(
+    0,
+    ...Object.values(seasons).map(
+      eps=>eps.length
+    )
+  );
+
+
+  const ratingClass=rating=>{
+
+    if(!rating){
+      return 'rating-cell unrated';
+    }
+
+    if(rating>=9){
+      return 'rating-cell excellent';
+    }
+
+    if(rating>=8){
+      return 'rating-cell great';
+    }
+
+    if(rating>=7){
+      return 'rating-cell good';
+    }
+
+    if(rating>=6){
+      return 'rating-cell average';
+    }
+
+    return 'rating-cell low';
+
+  };
+
+
+  const seasonAverage=episodes=>{
+
+    const rated=episodes
+      .map(e=>Number(e.vote_average))
+      .filter(x=>Number.isFinite(x)&&x>0);
+
+    if(!rated.length){
+      return null;
+    }
+
+    return rated.reduce((a,b)=>a+b,0)/rated.length;
+
+  };
+
+
+  return(
+    <div
+      className="ratings-overlay"
+      onClick={onClose}
+    >
+
+      <div
+        className="ratings-modal"
+        onClick={e=>e.stopPropagation()}
+      >
+
+        <div className="ratings-header">
+
+          <div>
+
+            <h2>Episode Ratings</h2>
+
+            <p>
+              {d.name||d.title}
+            </p>
+
+            <div className="ratings-legend">
+
+              <span>
+                <i className="excellent"/>
+                9.0+
+              </span>
+
+              <span>
+                <i className="great"/>
+                8.0–8.9
+              </span>
+
+              <span>
+                <i className="good"/>
+                7.0–7.9
+              </span>
+
+              <span>
+                <i className="average"/>
+                6.0–6.9
+              </span>
+
+              <span>
+                <i className="low"/>
+                &lt; 6.0
+              </span>
+
+              <span>
+                <i className="unrated"/>
+                Not rated
+              </span>
+
+            </div>
+
+          </div>
+
+          <button
+            className="ratings-close"
+            onClick={onClose}
+            aria-label="Close ratings"
+          >
+            <X size={22}/>
+          </button>
+
+        </div>
+
+
+        <div className="ratings-body">
+
+          {loading ? (
+
+            <div className="ratings-loading">
+              <div className="spinner"/>
+              <span>Loading ratings...</span>
+            </div>
+
+          ) : (
+
+            <div
+              className="ratings-grid"
+              style={{
+                gridTemplateColumns:
+                  `70px repeat(${Object.keys(seasons).length},64px)`
+              }}
+            >
+
+              <div className="ratings-corner"/>
+
+              {Object.keys(seasons).map(seasonNumber=>(
+                <div
+                  className="ratings-season-head"
+                  key={seasonNumber}
+                >
+                  S{seasonNumber}
+                </div>
+              ))}
+
+
+              {Array.from(
+                {length:maxEpisodes},
+                (_,index)=>{
+
+                  const episodeNumber=index+1;
+
+                  return(
+                    <React.Fragment key={episodeNumber}>
+
+                      <div className="ratings-episode-label">
+                        E{episodeNumber}
+                      </div>
+
+                      {Object.keys(seasons).map(seasonNumber=>{
+
+                        const episode=
+                          seasons[seasonNumber]?.find(
+                            e=>
+                              e.episode_number===
+                              episodeNumber
+                          );
+
+                        const rating=episode
+                          ? Number(episode.vote_average)
+                          : null;
+
+                        return(
+                          <div
+                            key={`${seasonNumber}-${episodeNumber}`}
+                            className={ratingClass(rating)}
+                            title={
+                              episode
+                                ? `${episode.name||`Episode ${episodeNumber}`} · ${rating?.toFixed(1)||'Not rated'}`
+                                : 'Not rated'
+                            }
+                          >
+                            {rating
+                              ? rating.toFixed(1)
+                              : '—'
+                            }
+                          </div>
+                        );
+
+                      })}
+
+                    </React.Fragment>
+                  );
+
+                }
+              )}
+
+
+              <div className="ratings-average-label">
+                AVG
+              </div>
+
+              {Object.keys(seasons).map(seasonNumber=>{
+
+                const avg=seasonAverage(
+                  seasons[seasonNumber]||[]
+                );
+
+                return(
+                  <div
+                    key={`avg-${seasonNumber}`}
+                    className={ratingClass(avg)}
+                  >
+                    {avg
+                      ? avg.toFixed(1)
+                      : '—'
+                    }
+                  </div>
+                );
+
+              })}
+
+            </div>
+
+          )}
+
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
+
+
 function CastRow({cast,nav}){
   if(!cast?.length)return null;
 
@@ -2296,6 +3257,80 @@ function TrailerSection({trailers,onOpen}){
   );
 }
 
+function CollectionRow({collection,nav,currentId}){
+
+  const items=(collection?.parts||[])
+    .filter(x=>x.id!==Number(currentId))
+    .sort((a,b)=>{
+      const dateA=a.release_date||'9999-99-99';
+      const dateB=b.release_date||'9999-99-99';
+
+      return dateA.localeCompare(dateB);
+    });
+
+  if(!items.length)return null;
+
+  return (
+    <section className="collection-section">
+
+      <div className="section-heading">
+        <h2>Part of {collection.name}</h2>
+      </div>
+
+      <div className="collection-scroll">
+
+        {items.map(item=>(
+          <button
+            className="collection-card"
+            key={item.id}
+            onClick={()=>nav(`/movie/${item.id}`)}
+          >
+
+            <div className="collection-poster">
+
+              {item.poster_path ? (
+                <img
+                  src={IMG(item.poster_path,'w500')}
+                  alt={item.title}
+                />
+              ) : (
+                <div className="collection-empty">
+                  <Film size={28}/>
+                </div>
+              )}
+
+              <div className="collection-card-overlay">
+                <div className="collection-play">
+                  <Play
+                    size={18}
+                    fill="currentColor"
+                  />
+                </div>
+              </div>
+
+            </div>
+
+            <div className="collection-card-info">
+
+              <h3>{item.title}</h3>
+
+              {item.release_date&&(
+                <span>
+                  {new Date(item.release_date).getFullYear()}
+                </span>
+              )}
+
+            </div>
+
+          </button>
+        ))}
+
+      </div>
+
+    </section>
+  );
+}
+
 function Recommendation({title,items,nav}){
   if(!items?.length)return null;
 
@@ -2348,9 +3383,750 @@ function Recommendation({title,items,nav}){
   );
 }
 
-function Person({id,nav}){const [d,setD]=useState(null);useEffect(()=>{apiFetch(`/person/${id}`).then(setD)},[id]);if(!d)return <Loading/>;return <><SiteNav nav={nav}/><main className="person-page"><div className="person-head"><div className="person-photo">{d.profile_path?<img src={IMG(d.profile_path,'w500')}/>:<UserRound size={70}/>}</div><div><h1>{d.name}</h1><div className="person-meta"><span>Born {d.birthday||'—'}</span><span>{d.place_of_birth||'—'}</span></div><p>{d.biography||'Biography unavailable.'}</p><button className="read-more">Read More</button></div></div><section><div className="film-head"><h2>Filmography</h2><div><button className="switch active">Movies</button><button className="switch">TV Shows</button></div></div><div className="poster-row">{(d.combined_credits?.cast||[]).sort((a,b)=>year(b).localeCompare(year(a))).slice(0,12).map((x,i)=><Poster item={x} nav={nav} key={`${x.id}-${i}`}/>)}</div></section></main></>}
+function Person({id,nav}){
 
-function MyList({items,nav,toggle}){return <><SiteNav nav={nav} active="list"/><main className="my-list-page"><PageTitle title="My Lists" subtitle="Save movies and shows you want to watch later"/><div className="list-tabs"><button className="active">My List</button><button>Watched</button></div>{items.length?<div className="poster-grid">{items.map((x,i)=><div className="list-item" key={`${x.id}-${i}`}><Poster item={x} nav={nav}/><button onClick={()=>toggle(x)} className="remove-list">×</button></div>)}</div>:<div className="empty-list"><Heart/><h3>No items yet</h3><p>Add movies and shows to your list using the + button.</p><button className="white-btn" onClick={()=>nav('/movies')}>Explore Movies</button></div>}</main></>}
+  const [d,setD]=useState(null);
+  const [mode,setMode]=useState('acting');
+  const [page,setPage]=useState(1);
+
+  const PER_PAGE=20;
+
+  useEffect(()=>{
+    apiFetch(`/person/${id}`)
+      .then(setD)
+      .catch(()=>setD(null));
+  },[id]);
+
+  useEffect(()=>{
+    setPage(1);
+  },[mode,id]);
+
+  if(!d){
+    return <Loading/>;
+  }
+
+  const cast=d.combined_credits?.cast||[];
+  const crew=d.combined_credits?.crew||[];
+
+  /*
+    "Acting" = everything the person acted in.
+    "Cast" = crew credits, keeping the second tab useful
+    while matching the requested two-tab design.
+  */
+  const source=
+    mode==='acting'
+      ? cast
+      : crew;
+
+  const unique=new Map();
+
+  source.forEach(item=>{
+
+    if(!item?.id){
+      return;
+    }
+
+    const mediaType=
+      item.media_type ||
+      (item.title ? 'movie' : 'tv');
+
+    const key=`${mediaType}-${item.id}`;
+
+    if(!unique.has(key)){
+      unique.set(key,{
+        ...item,
+        media_type:mediaType
+      });
+    }
+
+  });
+
+  const credits=Array.from(unique.values())
+    .filter(x=>x.poster_path)
+    .sort((a,b)=>{
+
+      const dateA=
+        a.release_date ||
+        a.first_air_date ||
+        '';
+
+      const dateB=
+        b.release_date ||
+        b.first_air_date ||
+        '';
+
+      return dateB.localeCompare(dateA);
+
+    });
+
+  const totalPages=
+    Math.max(
+      1,
+      Math.ceil(credits.length/PER_PAGE)
+    );
+
+  const safePage=
+    Math.min(page,totalPages);
+
+  const start=
+    (safePage-1)*PER_PAGE;
+
+  const visibleCredits=
+    credits.slice(
+      start,
+      start+PER_PAGE
+    );
+
+  const birthDate=d.birthday
+    ? new Date(d.birthday)
+    : null;
+
+  const age=
+    birthDate && !Number.isNaN(birthDate.getTime())
+      ? (()=>{
+
+          const today=new Date();
+
+          let value=
+            today.getFullYear()-
+            birthDate.getFullYear();
+
+          const month=
+            today.getMonth()-
+            birthDate.getMonth();
+
+          if(
+            month<0 ||
+            (
+              month===0 &&
+              today.getDate()<birthDate.getDate()
+            )
+          ){
+            value--;
+          }
+
+          return value;
+
+        })()
+      : null;
+
+  const scrollTop=()=>{
+    window.scrollTo({
+      top:0,
+      behavior:'smooth'
+    });
+  };
+
+  const changeMode=next=>{
+    setMode(next);
+    setPage(1);
+    scrollTop();
+  };
+
+  const changePage=next=>{
+    setPage(next);
+    scrollTop();
+  };
+
+  return (
+    <>
+      <SiteNav nav={nav}/>
+
+      <main className="person-page">
+
+        {/* PERSON HEADER */}
+
+        <section className="person-head">
+
+          <div className="person-photo">
+
+            {d.profile_path ? (
+
+              <img
+                src={IMG(d.profile_path,'w500')}
+                alt={d.name}
+              />
+
+            ) : (
+
+              <UserRound size={70}/>
+
+            )}
+
+          </div>
+
+
+          <div className="person-info">
+
+            <div className="person-title-row">
+
+              <h1>{d.name}</h1>
+
+              <button
+                className="person-notify"
+                type="button"
+                aria-label={`Notify me about ${d.name}`}
+              >
+                <Bell size={25}/>
+              </button>
+
+            </div>
+
+
+            <div className="person-meta">
+
+              <span>
+                Born {d.birthday||'—'}
+              </span>
+
+              {age!==null && (
+                <span>
+                  {age} years old
+                </span>
+              )}
+
+              <span>
+                {d.place_of_birth||'—'}
+              </span>
+
+            </div>
+
+
+            {d.biography && (
+              <>
+                <p className="person-biography">
+                  {d.biography}
+                </p>
+
+                <button
+                  className="read-more"
+                  type="button"
+                >
+                  Read More
+                </button>
+              </>
+            )}
+
+          </div>
+
+        </section>
+
+
+        {/* FILMOGRAPHY */}
+
+        <section className="person-filmography">
+
+          <div className="film-head">
+
+            <div>
+
+              <h2>Filmography</h2>
+
+              <span className="film-count">
+                {credits.length} titles
+              </span>
+
+            </div>
+
+
+            <div className="person-switch">
+
+              <button
+                type="button"
+                className={
+                  mode==='acting'
+                    ? 'switch active'
+                    : 'switch'
+                }
+                onClick={()=>changeMode('acting')}
+              >
+                Acting
+              </button>
+
+              <button
+                type="button"
+                className={
+                  mode==='crew'
+                    ? 'switch active'
+                    : 'switch'
+                }
+                onClick={()=>changeMode('crew')}
+              >
+                Cast
+              </button>
+
+            </div>
+
+          </div>
+
+
+          {visibleCredits.length ? (
+
+            <div className="person-film-grid">
+
+              {visibleCredits.map((x,i)=>(
+
+                <Poster
+                  key={`${x.media_type}-${x.id}-${i}`}
+                  item={x}
+                  nav={nav}
+                />
+
+              ))}
+
+            </div>
+
+          ) : (
+
+            <div className="person-empty">
+
+              <h3>No credits found</h3>
+
+              <p>
+                There are no titles available in this section.
+              </p>
+
+            </div>
+
+          )}
+
+
+          {/* PAGINATION */}
+
+          {totalPages>1 && (
+
+            <div className="person-pagination">
+
+              <button
+                type="button"
+                disabled={safePage===1}
+                onClick={()=>
+                  changePage(
+                    Math.max(1,safePage-1)
+                  )
+                }
+              >
+                Previous
+              </button>
+
+
+              <span>
+                Page {safePage} of {totalPages}
+              </span>
+
+
+              <button
+                type="button"
+                disabled={safePage===totalPages}
+                onClick={()=>
+                  changePage(
+                    Math.min(
+                      totalPages,
+                      safePage+1
+                    )
+                  )
+                }
+              >
+                Next
+              </button>
+
+            </div>
+
+          )}
+
+        </section>
+
+      </main>
+
+      <Footer nav={nav}/>
+
+    </>
+  );
+}
+
+function MyList({
+  lists,
+  nav,
+  createList,
+  deleteList,
+  removeFromList
+}){
+  //const [bg,setBg]=useState('');
+  const [newListOpen,setNewListOpen]=useState(false);
+  const [name,setName]=useState('');
+
+  const [backgrounds,setBackgrounds]=useState([]);
+const [bgIndex,setBgIndex]=useState(0);
+
+useEffect(()=>{
+  let cancelled=false;
+
+  apiFetch('/trending')
+    .then(data=>{
+      if(cancelled)return;
+
+      const images=[
+        ...new Map(
+          (data.results||[])
+            .filter(x=>x.backdrop_path)
+            .map(x=>[
+              x.backdrop_path,
+              BG(x.backdrop_path)
+            ])
+        ).values()
+      ].slice(0,8);
+
+      setBackgrounds(images);
+    })
+    .catch(()=>{
+      if(!cancelled){
+        setBackgrounds([]);
+      }
+    });
+
+  return()=>{
+    cancelled=true;
+  };
+},[]);
+
+
+useEffect(()=>{
+  if(backgrounds.length<=1)return;
+
+  const timer=setInterval(()=>{
+    setBgIndex(prev=>
+      (prev+1)%backgrounds.length
+    );
+  },8000);
+
+  return()=>clearInterval(timer);
+},[backgrounds.length]);
+
+const bg=backgrounds[bgIndex]||'';
+
+
+  const submitList=e=>{
+    e.preventDefault();
+
+    const created=createList(name);
+
+    if(created){
+      setName('');
+      setNewListOpen(false);
+    }
+  };
+
+
+  const exportLists=()=>{
+    const blob=new Blob(
+      [
+        JSON.stringify(
+          lists,
+          null,
+          2
+        )
+      ],
+      {
+        type:'application/json'
+      }
+    );
+
+    const url=
+      URL.createObjectURL(blob);
+
+    const a=
+      document.createElement('a');
+
+    a.href=url;
+    a.download='flixstar-lists.json';
+    a.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+
+  return (
+    <main
+        className="my-lists-page"
+        style={
+          bg
+            ? {
+                backgroundImage:
+                  `linear-gradient(
+                    180deg,
+                    rgba(4,10,8,.58) 0%,
+                    rgba(4,10,8,.72) 38%,
+                    rgba(4,10,8,.97) 100%
+                  ),
+                  linear-gradient(
+                    90deg,
+                    rgba(3,9,7,.45),
+                    rgba(3,9,7,.22)
+                  ),
+                  url(${bg})`
+              }
+            : undefined
+        }
+      >
+
+      <SiteNav
+        nav={nav}
+        active="list"
+      />
+
+
+      <div className="my-lists-shell">
+
+        {/* HEADER */}
+
+        <div className="my-lists-head">
+
+          <div className="my-lists-title">
+
+            <List
+              size={34}
+              strokeWidth={2}
+            />
+
+            <h1>My Lists</h1>
+
+          </div>
+
+
+          <div className="my-lists-actions">
+
+            <button
+              className="new-list-btn"
+              onClick={()=>
+                setNewListOpen(true)
+              }
+            >
+              <Plus size={19}/>
+              <span>New List</span>
+            </button>
+
+
+            <button
+              className="list-action-icon"
+              onClick={exportLists}
+              aria-label="Export lists"
+              title="Export lists"
+            >
+              <Download size={20}/>
+            </button>
+
+          </div>
+
+        </div>
+
+
+        {/* NEW LIST FORM */}
+
+        {newListOpen && (
+
+          <form
+            className="new-list-form"
+            onSubmit={submitList}
+          >
+
+            <input
+              autoFocus
+              value={name}
+              onChange={e=>
+                setName(e.target.value)
+              }
+              placeholder="List name"
+              maxLength={40}
+            />
+
+            <button type="submit">
+              Create
+            </button>
+
+            <button
+              type="button"
+              onClick={()=>{
+                setNewListOpen(false);
+                setName('');
+              }}
+            >
+              Cancel
+            </button>
+
+          </form>
+
+        )}
+
+
+        {/* EMPTY STATE */}
+
+        {!lists.length ? (
+
+          <section className="my-lists-empty">
+
+            <div className="my-lists-empty-icon">
+              <List size={38}/>
+            </div>
+
+            <h2>
+              No lists yet
+            </h2>
+
+            <p>
+              Create a list to start organizing
+              your movies and shows.
+            </p>
+
+          </section>
+
+        ) : (
+
+          /* LISTS */
+
+          <section className="my-lists-grid">
+
+            {lists.map(list=>(
+
+              <article
+                className={`my-list-card ${
+                  localStorage.getItem(
+                    'flixstar-active-list'
+                  )===list.id
+                    ? 'selected'
+                    : ''
+                }`}
+                key={list.id}
+                onClick={()=>{
+                  localStorage.setItem(
+                    'flixstar-active-list',
+                    list.id
+                  );
+                }}
+              >
+
+                <div className="my-list-card-head">
+
+                  <div>
+
+                    <h2>
+                      {list.name}
+                    </h2>
+
+                    <span>
+                      {list.items?.length||0}{' '}
+                      {
+                        list.items?.length===1
+                          ? 'title'
+                          : 'titles'
+                      }
+                    </span>
+
+                  </div>
+
+
+                  <button
+                    className="list-delete"
+                    onClick={e=>{
+                      e.stopPropagation();
+                      deleteList(list.id);
+                    }}
+                    aria-label={
+                      `Delete ${list.name}`
+                    }
+                    title="Delete list"
+                  >
+                    ×
+                  </button>
+
+                </div>
+
+
+                {list.items?.length ? (
+
+                  <div className="my-list-items">
+
+                    {list.items
+                      .slice(0,6)
+                      .map((item,i)=>(
+
+                        <div
+                          className="my-list-item"
+                          key={
+                            `${mediaType(item)}-${item.id}-${i}`
+                          }
+                        >
+
+                          <Poster
+                            item={item}
+                            nav={nav}
+                          />
+
+                          <button
+                            className="my-list-remove"
+                            onClick={e=>{
+                              e.stopPropagation();
+
+                              removeFromList(
+                                item,
+                                list.id
+                              );
+                            }}
+                            aria-label={
+                              `Remove ${title(item)}`
+                            }
+                          >
+                            ×
+                          </button>
+
+                        </div>
+
+                    ))}
+
+                  </div>
+
+                ) : (
+
+                  <button
+                    className="my-list-card-empty"
+                    onClick={()=>{
+                      localStorage.setItem(
+                        'flixstar-active-list',
+                        list.id
+                      );
+
+                      nav('/movies');
+                    }}
+                  >
+                    <Plus size={22}/>
+                    <span>
+                      Add movies and shows
+                    </span>
+                  </button>
+
+                )}
+
+
+                {list.items?.length>6 && (
+
+                  <span className="my-list-more">
+                    +{list.items.length-6} more
+                  </span>
+
+                )}
+
+              </article>
+
+            ))}
+
+          </section>
+
+        )}
+
+      </div>
+
+    </main>
+  );
+}
 function SettingsPage({nav}){return <><SiteNav nav={nav}/><main className="settings-page"><PageTitle title="Settings" subtitle="Manage your Flixstar preferences"/><div className="settings-card"><div className="setting"><div><b>Account</b><p>Guest account</p></div><button className="small-btn">Sign in</button></div><div className="setting"><div><b>Appearance</b><p>Dark mode</p></div><span className="toggle on"></span></div><div className="setting"><div><b>Autoplay</b><p>Play the next episode automatically</p></div><span className="toggle"></span></div><div className="setting"><div><b>Playback quality</b><p>Auto</p></div><button className="small-btn">Auto</button></div></div></main></>}
 function Watch({titleId,type,nav}) {
 
