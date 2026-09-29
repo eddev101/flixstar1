@@ -416,47 +416,150 @@ app.get('/api/search',safe(async(req,res)=>{
     });
   }
 
-  // Get the first page so we know how many pages exist
-  const first=await tmdb('/search/multi',{
-    query,
-    page:1,
-    include_adult:false
-  });
-
-  const totalPages=Math.min(first.total_pages||1,20);
-
-  const pages=[first];
-
-  // Fetch the remaining pages in small batches
-  for(let start=2;start<=totalPages;start+=5){
-
-    const batch=[];
-
-    for(
-      let page=start;
-      page<=Math.min(start+4,totalPages);
-      page++
-    ){
-      batch.push(
-        tmdb('/search/multi',{
-          query,
-          page,
-          include_adult:false
-        })
-      );
-    }
-
-    const batchResults=await Promise.all(batch);
-
-    pages.push(...batchResults);
+  /*
+   * Don't bother searching for a single character.
+   * TMDB becomes extremely broad with very short queries.
+   */
+  if(query.length<2){
+    return res.json({
+      page:1,
+      total_pages:0,
+      total_results:0,
+      results:[]
+    });
   }
 
-  const results=pages.flatMap(page=>page.results||[]);
+  /*
+   * Search only the first 3 pages.
+   * This gives us enough results without turning a simple
+   * search into hundreds of loosely related matches.
+   */
+  const pages=[];
+
+  for(let page=1;page<=3;page++){
+
+    const data=await tmdb('/search/multi',{
+      query,
+      page,
+      include_adult:false
+    });
+
+    pages.push(data);
+
+    if(page>=(data.total_pages||1)){
+      break;
+    }
+  }
+
+  const rawResults=pages.flatMap(page=>page.results||[]);
+
+  const normalizedQuery=query
+    .toLowerCase()
+    .replace(/\s+/g,' ')
+    .trim();
+
+  const escapeRegex=value=>
+    value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+
+  const queryRegex=new RegExp(
+    `(^|\\s)${escapeRegex(normalizedQuery)}(\\s|$)`,
+    'i'
+  );
+
+  const getName=item=>
+    (
+      item.media_type==='person'
+        ? item.name
+        : item.title||item.name
+    )||'';
+
+  /*
+   * Score each result based on how closely its name/title
+   * matches what the user actually typed.
+   */
+  const scored=rawResults
+    .filter(item=>
+      item.media_type==='movie' ||
+      item.media_type==='tv' ||
+      item.media_type==='person'
+    )
+    .map(item=>{
+
+      const name=getName(item);
+      const value=name.toLowerCase().trim();
+
+      let score=0;
+
+      /* Exact match */
+      if(value===normalizedQuery){
+        score+=1000;
+      }
+
+      /* Starts with the search */
+      else if(value.startsWith(normalizedQuery)){
+        score+=700;
+      }
+
+      /* Whole-word match */
+      else if(queryRegex.test(value)){
+        score+=500;
+      }
+
+      /* Contains the search anywhere */
+      else if(value.includes(normalizedQuery)){
+        score+=200;
+      }
+
+      /*
+       * Popular results should appear above obscure results
+       * when their text relevance is otherwise similar.
+       */
+      score+=Math.min(Number(item.popularity)||0,100)*2;
+
+      /*
+       * Small preference for movies/TV over people when
+       * the textual relevance is identical.
+       */
+      if(item.media_type==='movie'){
+        score+=15;
+      }else if(item.media_type==='tv'){
+        score+=10;
+      }
+
+      return {
+        ...item,
+        _searchScore:score
+      };
+
+    })
+    .sort((a,b)=>b._searchScore-a._searchScore);
+
+  /*
+   * Keep people and media controlled separately.
+   */
+  const people=scored
+    .filter(item=>item.media_type==='person')
+    .slice(0,8);
+
+  const media=scored
+    .filter(item=>
+      item.media_type==='movie' ||
+      item.media_type==='tv'
+    )
+    .slice(0,32);
+
+  const results=[
+    ...media,
+    ...people
+  ].map(({_searchScore,...item})=>item);
 
   res.json({
     page:1,
-    total_pages:totalPages,
-    total_results:first.total_results||results.length,
+    total_pages:Math.min(
+      pages[0]?.total_pages||1,
+      3
+    ),
+    total_results:pages[0]?.total_results||results.length,
     results
   });
 
