@@ -414,6 +414,8 @@ function SiteNav({
 
 function NavItem({icon,text,active,onClick}){return <button className={`nav-pill ${active?'active':''}`} onClick={onClick}>{icon}{text}</button>}
 
+const WATCH_PROGRESS_MIN_SECONDS=120;
+
 function readWatchProgress(){
   try{
     return JSON.parse(
@@ -623,10 +625,6 @@ function ContinueWatching({items,nav}){
     if(item.type==='tv'){
       params.set('season',String(item.season||1));
       params.set('episode',String(item.episode||1));
-    }
-
-    if(item.timestamp>0){
-      params.set('progress',String(Math.floor(item.timestamp)));
     }
 
     const query=params.toString();
@@ -4135,10 +4133,35 @@ function Watch({titleId,type,nav}) {
   const season=qs.get('season');
   const episode=qs.get('episode');
 
-  // Resume position coming from Continue Watching
+  // Flixstar owns the resume position. It is keyed by the movie/episode,
+  // not by the playback server/provider. The legacy query-string fallback
+  // is retained so older Continue Watching links still work.
+  const [savedResumeItem,setSavedResumeItem]=useState(null);
+
+  useEffect(()=>{
+    const syncSavedProgress=()=>{
+      const current=readWatchProgress();
+      const match=current.find(item=>
+        item?.type===type &&
+        String(item?.id)===String(titleId) &&
+        (type!=='tv' || (
+          Number(item?.season||1)===Number(season||1) &&
+          Number(item?.episode||1)===Number(episode||1)
+        ))
+      )||null;
+      setSavedResumeItem(match);
+    };
+
+    syncSavedProgress();
+    window.addEventListener('flixstar-watch-progress',syncSavedProgress);
+
+    return()=>
+      window.removeEventListener('flixstar-watch-progress',syncSavedProgress);
+  },[titleId,type,season,episode]);
+
   const resumeProgress=Math.max(
     0,
-    Number(qs.get('progress')||0)
+    Number(qs.get('progress')||savedResumeItem?.timestamp||0)
   );
 
   const [d,setD]=useState(null);
@@ -4228,159 +4251,240 @@ function Watch({titleId,type,nav}) {
   const t=d?title(d):'Loading';
 
 
-  /*
-    ==========================================
-    SAVE PLAYER PROGRESS
-    ==========================================
-  */
+ /*
+  ==========================================
+  SAVE PLAYER PROGRESS
+  ==========================================
+*/
 
-  useEffect(()=>{
+useEffect(()=>{
 
-    const handlePlayerMessage=(event)=>{
+  const handlePlayerMessage=(event)=>{
 
-  let message=event.data;
+    let message=event.data;
 
-  // Some players send the whole message as a JSON string
-  if(typeof message==='string'){
-    try{
-      message=JSON.parse(message);
-    }catch{
+    // Some players send the message as a JSON string
+    if(typeof message==='string'){
+      try{
+        message=JSON.parse(message);
+      }catch{
+        return;
+      }
+    }
+
+    if(!message || typeof message!=='object'){
       return;
     }
-  }
 
-  if(!message || typeof message!=='object'){
-    return;
-  }
+    /*
+      Players can send progress in different formats.
 
-  // The player wraps progress inside data
-  let data=message.data;
+      Supported examples:
 
-  if(typeof data==='string'){
-    try{
-      data=JSON.parse(data);
-    }catch{
+      PLAYER_EVENT:
+      {
+        type:'PLAYER_EVENT',
+        data:{
+          player_status:'playing',
+          player_progress:125,
+          player_duration:7200
+        }
+      }
+
+      Or:
+
+      {
+        type:'PLAYER_EVENT',
+        data:{
+          event:'timeupdate',
+          currentTime:125,
+          duration:7200
+        }
+      }
+
+      Or direct:
+      {
+        currentTime:125,
+        duration:7200
+      }
+    */
+
+    let data=message.data ?? message;
+
+    if(typeof data==='string'){
+      try{
+        data=JSON.parse(data);
+      }catch{
+        return;
+      }
+    }
+
+    if(!data || typeof data!=='object'){
       return;
     }
-  }
 
-  if(!data || typeof data!=='object'){
-    return;
-  }
+    /*
+      Ignore unrelated postMessage traffic.
+      If there is no message.type, allow the direct format.
+    */
 
-  // Only handle actual player progress events
-  if(
-    message.type &&
-    message.type!=='PLAYER_EVENT'
-  ){
-    return;
-  }
+    if(
+      message.type &&
+      message.type!=='PLAYER_EVENT'
+    ){
+      return;
+    }
 
-  if(
-    data.event &&
-    data.event!=='timeupdate'
-  ){
-    return;
-  }
+    /*
+      Read the current playback position.
+    */
 
-  const timestamp=Number(
-    data.timestamp ??
-    data.currentTime ??
-    data.position
-  );
+    const timestamp=Number(
+      data.player_progress ??
+      data.timestamp ??
+      data.currentTime ??
+      data.position ??
+      data.seconds ??
+      data.time
+    );
 
-  const duration=Number(
-    data.duration ??
-    data.totalDuration
-  );
+    /*
+      Read the total video duration.
+    */
 
-  if(
-    !Number.isFinite(timestamp) ||
-    !Number.isFinite(duration) ||
-    duration<=0 ||
-    timestamp<0
-  ){
-    return;
-  }
+    const duration=Number(
+      data.player_duration ??
+      data.duration ??
+      data.totalDuration
+    );
 
-  const watchedFraction=Math.min(
-    1,
-    Math.max(
-      0,
-      timestamp/duration
-    )
-  );
+    /*
+      We need both values before we can calculate
+      the percentage watched.
+    */
 
-  const watchedItem={
+    if(
+      !Number.isFinite(timestamp) ||
+      !Number.isFinite(duration) ||
+      duration<=0 ||
+      timestamp<0
+    ){
+      return;
+    }
 
-    id:String(titleId),
+    const watchedFraction=Math.min(
+      1,
+      Math.max(
+        0,
+        timestamp/duration
+      )
+    );
 
-    type,
+    const watchedItem={
 
-    title:t,
+      id:String(titleId),
 
-    name:t,
+      type,
 
-    poster_path:d?.poster_path||null,
+      title:t,
 
-    backdrop_path:d?.backdrop_path||null,
+      name:t,
 
-    timestamp,
+      poster_path:d?.poster_path||null,
 
-    duration,
+      backdrop_path:d?.backdrop_path||null,
 
-    progress:watchedFraction,
+      timestamp,
 
-    ...(type==='tv' && {
-      season:Number(season)||1,
-      episode:Number(episode)||1
-    })
+      duration,
+
+      progress:watchedFraction,
+
+      ...(type==='tv' && {
+        season:Number(season)||1,
+        episode:Number(episode)||1
+      })
+
+    };
+
+    /*
+      DEBUG:
+      Open browser console while watching.
+      You should see this every time the player
+      sends a usable progress event.
+    */
+
+    console.log(
+      'FLIXSTAR PLAYER PROGRESS:',
+      watchedItem
+    );
+
+    /*
+      If the movie/episode is 95%+ complete,
+      remove it from Continue Watching.
+    */
+
+    if(watchedFraction>=0.95){
+
+      removeWatchProgress(watchedItem);
+
+      return;
+
+    }
+
+    /*
+      Don't show something in Continue Watching
+      until the user has watched at least 2 minutes.
+    */
+
+    if(timestamp<120){
+
+      return;
+
+    }
+
+    /*
+      IMPORTANT:
+      No provider/server information is stored.
+
+      The progress belongs only to:
+      Movie:
+        type + id
+
+      TV:
+        type + id + season + episode
+    */
+
+    saveWatchProgress(watchedItem);
 
   };
 
-  console.log(
-    'Flixstar playback progress:',
-    watchedItem
+
+  window.addEventListener(
+    'message',
+    handlePlayerMessage
   );
 
-  // Remove finished titles
-  if(watchedFraction>=0.95){
 
-    removeWatchProgress(watchedItem);
+  return()=>{
 
-    return;
-
-  }
-
-  saveWatchProgress(watchedItem);
-
-};
-
-
-    window.addEventListener(
+    window.removeEventListener(
       'message',
       handlePlayerMessage
     );
 
+  };
 
-    return()=>{
-
-      window.removeEventListener(
-        'message',
-        handlePlayerMessage
-      );
-
-    };
-
-  },[
-    titleId,
-    type,
-    season,
-    episode,
-    t,
-    d?.poster_path
-  ]);
-
+},[
+  titleId,
+  type,
+  season,
+  episode,
+  t,
+  d?.poster_path,
+  d?.backdrop_path
+]);
+  
 
   /*
     ==========================================
