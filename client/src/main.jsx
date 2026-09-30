@@ -414,8 +414,6 @@ function SiteNav({
 
 function NavItem({icon,text,active,onClick}){return <button className={`nav-pill ${active?'active':''}`} onClick={onClick}>{icon}{text}</button>}
 
-const WATCH_PROGRESS_MIN_SECONDS=120;
-
 function readWatchProgress(){
   try{
     return JSON.parse(
@@ -625,6 +623,10 @@ function ContinueWatching({items,nav}){
     if(item.type==='tv'){
       params.set('season',String(item.season||1));
       params.set('episode',String(item.episode||1));
+    }
+
+    if(item.timestamp>0){
+      params.set('progress',String(Math.floor(item.timestamp)));
     }
 
     const query=params.toString();
@@ -4133,35 +4135,10 @@ function Watch({titleId,type,nav}) {
   const season=qs.get('season');
   const episode=qs.get('episode');
 
-  // Flixstar owns the resume position. It is keyed by the movie/episode,
-  // not by the playback server/provider. The legacy query-string fallback
-  // is retained so older Continue Watching links still work.
-  const [savedResumeItem,setSavedResumeItem]=useState(null);
-
-  useEffect(()=>{
-    const syncSavedProgress=()=>{
-      const current=readWatchProgress();
-      const match=current.find(item=>
-        item?.type===type &&
-        String(item?.id)===String(titleId) &&
-        (type!=='tv' || (
-          Number(item?.season||1)===Number(season||1) &&
-          Number(item?.episode||1)===Number(episode||1)
-        ))
-      )||null;
-      setSavedResumeItem(match);
-    };
-
-    syncSavedProgress();
-    window.addEventListener('flixstar-watch-progress',syncSavedProgress);
-
-    return()=>
-      window.removeEventListener('flixstar-watch-progress',syncSavedProgress);
-  },[titleId,type,season,episode]);
-
+  // Resume position coming from Continue Watching
   const resumeProgress=Math.max(
     0,
-    Number(qs.get('progress')||savedResumeItem?.timestamp||0)
+    Number(qs.get('progress')||0)
   );
 
   const [d,setD]=useState(null);
@@ -4276,9 +4253,8 @@ function Watch({titleId,type,nav}) {
     return;
   }
 
-  // Providers may wrap playback data inside data, or send the playback
-  // event directly. Flixstar normalizes both forms.
-  let data=message.data ?? message;
+  // The player wraps progress inside data
+  let data=message.data;
 
   if(typeof data==='string'){
     try{
@@ -4292,7 +4268,7 @@ function Watch({titleId,type,nav}) {
     return;
   }
 
-  // Ignore unrelated postMessage traffic.
+  // Only handle actual player progress events
   if(
     message.type &&
     message.type!=='PLAYER_EVENT'
@@ -4302,7 +4278,7 @@ function Watch({titleId,type,nav}) {
 
   if(
     data.event &&
-    !['timeupdate','progress'].includes(data.event)
+    data.event!=='timeupdate'
   ){
     return;
   }
@@ -4367,18 +4343,13 @@ function Watch({titleId,type,nav}) {
     watchedItem
   );
 
-  // Remove finished titles.
+  // Remove finished titles
   if(watchedFraction>=0.95){
-    removeWatchProgress(watchedItem);
-    return;
-  }
 
-  // Only add/update Continue Watching after two minutes. This prevents
-  // accidental short opens from cluttering the shelf. The record contains
-  // no server/provider information, so any supported server updates the
-  // same Flixstar progress record.
-  if(timestamp < WATCH_PROGRESS_MIN_SECONDS){
+    removeWatchProgress(watchedItem);
+
     return;
+
   }
 
   saveWatchProgress(watchedItem);
