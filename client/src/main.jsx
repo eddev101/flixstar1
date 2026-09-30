@@ -4133,62 +4133,6 @@ function Watch({titleId,type,nav}) {
   const season=qs.get('season');
   const episode=qs.get('episode');
 
-  // Flixstar owns the resume position. It is keyed by the movie/episode,
-  // not by the playback server/provider. The legacy query-string fallback
-  // is retained so older Continue Watching links still work.
-  const [savedResumeItem,setSavedResumeItem]=useState(null);
-
-  useEffect(()=>{
-    const syncSavedProgress=()=>{
-      const current=readWatchProgress();
-      const match=current.find(item=>
-        item?.type===type &&
-        String(item?.id)===String(titleId) &&
-        (type!=='tv' || (
-          Number(item?.season||1)===Number(season||1) &&
-          Number(item?.episode||1)===Number(episode||1)
-        ))
-      )||null;
-      setSavedResumeItem(match);
-    };
-
-    syncSavedProgress();
-    window.addEventListener('flixstar-watch-progress',syncSavedProgress);
-
-    return()=>
-      window.removeEventListener('flixstar-watch-progress',syncSavedProgress);
-  },[titleId,type,season,episode]);
-
-  const getSavedResumeProgress=()=>{
-  try{
-    const items=readWatchProgress();
-
-    const item=items.find(x=>
-      String(x.id)===String(titleId) &&
-      x.type===type &&
-      (
-        type!=='tv' ||
-        (
-          Number(x.season)===Number(season) &&
-          Number(x.episode)===Number(episode)
-        )
-      )
-    );
-
-    return Math.max(
-      0,
-      Number(item?.timestamp||0)
-    );
-
-  }catch{
-    return 0;
-  }
-};
-
-const [resumeProgress,setResumeProgress]=useState(
-  getSavedResumeProgress
-);
-
   const [d,setD]=useState(null);
   const [playback,setPlayback]=useState(null);
   const [loading,setLoading]=useState(true);
@@ -4511,42 +4455,6 @@ useEffect(()=>{
 ]);
   
 
-  /*
-    ==========================================
-    BUILD PROVIDER URL WITH RESUME POSITION
-    ==========================================
-  */
-
-  const getProviderUrl=(provider)=>{
-
-    if(!provider?.url){
-      return '';
-    }
-
-    if(!resumeProgress){
-      return provider.url;
-    }
-
-    try{
-
-      const url=new URL(provider.url);
-
-      url.searchParams.set(
-        'progress',
-        String(Math.floor(resumeProgress))
-      );
-
-      return url.toString();
-
-    }catch{
-
-      return provider.url;
-
-    }
-
-  };
-
-
   if(loading){
 
     return(
@@ -4592,9 +4500,7 @@ useEffect(()=>{
 
           onClick={()=>{
 
-            const url=getProviderUrl(
-              activeProvider
-            );
+            const url=activeProvider?.url;
 
             if(url){
 
@@ -4628,7 +4534,7 @@ useEffect(()=>{
 
             title={`${t} player`}
 
-            src={getProviderUrl(activeProvider)}
+            src={activeProvider.url}
 
             allowFullScreen
 
@@ -4699,9 +4605,6 @@ useEffect(()=>{
                 }
 
                 onClick={()=>{
-                  const latestProgress=getSavedResumeProgress();
-                
-                  setResumeProgress(latestProgress);
                   setActiveProvider(provider);
                 }}
 
