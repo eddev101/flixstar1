@@ -4159,10 +4159,35 @@ function Watch({titleId,type,nav}) {
       window.removeEventListener('flixstar-watch-progress',syncSavedProgress);
   },[titleId,type,season,episode]);
 
-  const resumeProgress=Math.max(
-    0,
-    Number(qs.get('progress')||savedResumeItem?.timestamp||0)
-  );
+  const getSavedResumeProgress=()=>{
+  try{
+    const items=readWatchProgress();
+
+    const item=items.find(x=>
+      String(x.id)===String(titleId) &&
+      x.type===type &&
+      (
+        type!=='tv' ||
+        (
+          Number(x.season)===Number(season) &&
+          Number(x.episode)===Number(episode)
+        )
+      )
+    );
+
+    return Math.max(
+      0,
+      Number(item?.timestamp||0)
+    );
+
+  }catch{
+    return 0;
+  }
+};
+
+const [resumeProgress,setResumeProgress]=useState(
+  getSavedResumeProgress
+);
 
   const [d,setD]=useState(null);
   const [playback,setPlayback]=useState(null);
@@ -4599,8 +4624,7 @@ useEffect(()=>{
         {activeProvider ? (
 
           <iframe
-
-            key={getProviderUrl(activeProvider)}
+            key={activeProvider.id}
 
             title={`${t} player`}
 
@@ -4675,9 +4699,10 @@ useEffect(()=>{
                 }
 
                 onClick={()=>{
-
+                  const latestProgress=getSavedResumeProgress();
+                
+                  setResumeProgress(latestProgress);
                   setActiveProvider(provider);
-
                 }}
 
               >
