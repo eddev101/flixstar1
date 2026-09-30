@@ -2000,7 +2000,7 @@ body,
 
 /* Horizontal row */
 .continue-row {
-  display: grid;
+  /*display: grid;*/
   grid-auto-flow: column;
 
   /* Much smaller cards */
