@@ -160,8 +160,15 @@ async function addLogos(items){
 app.get('/api/home',safe(async(req,res)=>{
   const [trending,topMovies,topTv,netflixMovies,netflixShows,disneyMovies,maxShows,awardMovies,awardShows,oscar,psychological,cannes,halloween,rt,mindBending,trueStory]=await Promise.all([
     tmdb('/trending/all/week'),
-    tmdb('/movie/top_rated'),
-    tmdb('/tv/top_rated'),
+    tmdb('/discover/movie',{
+  sort_by:'vote_average.desc',
+  vote_count_gte:100
+}),
+
+tmdb('/discover/tv',{
+  sort_by:'vote_average.desc',
+  vote_count_gte:100
+}),
     tmdb('/discover/movie',{with_watch_providers:8,watch_region:'US',with_watch_monetization_types:'flatrate',sort_by:'popularity.desc'}),
     tmdb('/discover/tv',{with_watch_providers:8,watch_region:'US',with_watch_monetization_types:'flatrate',sort_by:'popularity.desc'}),
     tmdb('/discover/movie',{with_watch_providers:337,watch_region:'US',with_watch_monetization_types:'flatrate',sort_by:'popularity.desc'}),
@@ -369,6 +376,16 @@ app.get('/api/discover',safe(async(req,res)=>{
         ? 'flatrate'
         : undefined
   };
+
+  if(
+  (type==='movie' || type==='tv') &&
+  req.query.sort==='vote_average.desc'
+){
+  params.vote_count_gte=Math.max(
+    Number(params.vote_count_gte)||0,
+    100
+  );
+}
 
   if(req.query.year){
     params[
