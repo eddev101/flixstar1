@@ -27,8 +27,8 @@ const safe=fn=>(req,res)=>fn(req,res).catch(e=>res.status(500).json({error:e.mes
 const withType=(data,type)=>({...data,results:(data.results||[]).map(x=>({...x,media_type:x.media_type||type}))});
 const PRESETS={
   awards:{
-    movie:{sort_by:'vote_average.desc',vote_count_gte:300},
-    tv:{sort_by:'vote_average.desc',vote_count_gte:100}
+    movie:{sort_by:'vote_average.desc',vote_count.gte:300},
+    tv:{sort_by:'vote_average.desc',vote_count.gte:100}
   },
 
   oscar:{
@@ -42,7 +42,7 @@ const PRESETS={
     movie:{
       with_genres:'53',
       sort_by:'vote_average.desc',
-      vote_count_gte:300
+      vote_count.gte:300
     }
   },
 
@@ -63,7 +63,7 @@ const PRESETS={
   rt:{
     movie:{
       sort_by:'vote_average.desc',
-      vote_count_gte:1000
+      vote_count.gte:1000
     }
   },
 
@@ -71,7 +71,7 @@ const PRESETS={
     movie:{
       with_keywords:'11931',
       sort_by:'vote_average.desc',
-      vote_count_gte:100
+      vote_count.gte:100
     }
   },
 
@@ -98,7 +98,7 @@ async function presetParams(type,preset){
   switch(preset){
     case 'awards':{
       const id=await findKeyword('award winner');
-      return id?{with_keywords:id,sort_by:'vote_average.desc',vote_count_gte:250}:{sort_by:'vote_average.desc',vote_count_gte:500};
+      return id?{with_keywords:id,sort_by:'vote_average.desc',vote_count.gte:250}:{sort_by:'vote_average.desc',vote_count.gte:500};
     }
     case 'oscar':{
       const id=await findKeyword('Academy Award for Best Picture');
@@ -117,10 +117,10 @@ async function presetParams(type,preset){
       return id?{with_keywords:id,with_genres:'27',sort_by:'popularity.desc'}:{with_genres:'27',sort_by:'popularity.desc'};
     }
     case 'rt':
-      return {sort_by:'vote_average.desc',vote_average_gte:7.5,vote_count_gte:1000};
+      return {sort_by:'vote_average.desc',vote_average_gte:7.5,vote_count.gte:1000};
     case 'mindfuck':{
       const id=await findKeyword('mindfuck');
-      return id?{with_keywords:id,sort_by:'popularity.desc'}:{with_genres:'9648|878',sort_by:'vote_average.desc',vote_count_gte:250};
+      return id?{with_keywords:id,sort_by:'popularity.desc'}:{with_genres:'9648|878',sort_by:'vote_average.desc',vote_count.gte:250};
     }
     case 'true-story':{
       const id=await findKeyword('based on true story');
