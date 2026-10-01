@@ -162,12 +162,12 @@ app.get('/api/home',safe(async(req,res)=>{
     tmdb('/trending/all/week'),
     tmdb('/discover/movie',{
   sort_by:'vote_average.desc',
-  vote_count_gte:100
+  'vote_count.gte':100
 }),
 
 tmdb('/discover/tv',{
   sort_by:'vote_average.desc',
-  vote_count_gte:100
+  'vote_count.gte':100
 }),
     tmdb('/discover/movie',{with_watch_providers:8,watch_region:'US',with_watch_monetization_types:'flatrate',sort_by:'popularity.desc'}),
     tmdb('/discover/tv',{with_watch_providers:8,watch_region:'US',with_watch_monetization_types:'flatrate',sort_by:'popularity.desc'}),
@@ -381,8 +381,8 @@ app.get('/api/discover',safe(async(req,res)=>{
   (type==='movie' || type==='tv') &&
   req.query.sort==='vote_average.desc'
 ){
-  params.vote_count_gte=Math.max(
-    Number(params.vote_count_gte)||0,
+  params['vote_count.gte']=Math.max(
+    Number(params['vote_count.gte'])||0,
     100
   );
 }
