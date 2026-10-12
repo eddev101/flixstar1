@@ -3791,3 +3791,53 @@ body,
   }
 
 }
+
+
+/* Filmography media filter */
+
+.person-media-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -12px 0 28px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.person-media-filter .switch {
+  min-width: auto;
+  padding: 10px 20px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 999px;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.person-media-filter .switch:hover:not(.active) {
+  background: rgba(255,255,255,.06);
+  color: #fff;
+}
+
+.person-media-filter .switch.active {
+  background: #5038ff;
+  border-color: #7465ff;
+  color: #fff;
+}
+
+@media (max-width: 550px) {
+  .person-media-filter {
+    gap: 6px;
+    margin-top: -8px;
+    margin-bottom: 22px;
+  }
+
+  .person-media-filter .switch {
+    padding: 9px 13px;
+    font-size: 12px;
+  }
+}
