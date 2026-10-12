@@ -3381,10 +3381,13 @@ function Recommendation({title,items,nav}){
   );
 }
 
+
+
 function Person({id,nav}){
 
   const [d,setD]=useState(null);
   const [mode,setMode]=useState('acting');
+  const [mediaFilter,setMediaFilter]=useState('all');
   const [page,setPage]=useState(1);
 
   const PER_PAGE=20;
@@ -3397,7 +3400,7 @@ function Person({id,nav}){
 
   useEffect(()=>{
     setPage(1);
-  },[mode,id]);
+  },[mode,mediaFilter,id]);
 
   if(!d){
     return <Loading/>;
@@ -3407,9 +3410,8 @@ function Person({id,nav}){
   const crew=d.combined_credits?.crew||[];
 
   /*
-    "Acting" = everything the person acted in.
-    "Cast" = crew credits, keeping the second tab useful
-    while matching the requested two-tab design.
+    Acting = acting credits.
+    Cast = crew credits, preserving your existing behavior.
   */
   const source=
     mode==='acting'
@@ -3457,23 +3459,40 @@ function Person({id,nav}){
 
     });
 
-  const totalPages=
-    Math.max(
-      1,
-      Math.ceil(credits.length/PER_PAGE)
-    );
+  /* COUNTS BY MEDIA TYPE */
 
-  const safePage=
-    Math.min(page,totalPages);
+  const movieCount=credits.filter(
+    x=>x.media_type==='movie'
+  ).length;
 
-  const start=
-    (safePage-1)*PER_PAGE;
+  const tvCount=credits.filter(
+    x=>x.media_type==='tv'
+  ).length;
 
-  const visibleCredits=
-    credits.slice(
-      start,
-      start+PER_PAGE
-    );
+  /* ALL / MOVIES / TV SHOWS FILTER */
+
+  const filteredCredits=credits.filter(x=>
+    mediaFilter==='all' ||
+    x.media_type===mediaFilter
+  );
+
+  /* PAGINATION BASED ON FILTERED RESULTS */
+
+  const totalPages=Math.max(
+    1,
+    Math.ceil(filteredCredits.length/PER_PAGE)
+  );
+
+  const safePage=Math.min(page,totalPages);
+
+  const start=(safePage-1)*PER_PAGE;
+
+  const visibleCredits=filteredCredits.slice(
+    start,
+    start+PER_PAGE
+  );
+
+  /* AGE CALCULATION */
 
   const birthDate=d.birthday
     ? new Date(d.birthday)
@@ -3521,6 +3540,12 @@ function Person({id,nav}){
     scrollTop();
   };
 
+  const changeMediaFilter=next=>{
+    setMediaFilter(next);
+    setPage(1);
+    scrollTop();
+  };
+
   const changePage=next=>{
     setPage(next);
     scrollTop();
@@ -3553,7 +3578,6 @@ function Person({id,nav}){
 
           </div>
 
-
           <div className="person-info">
 
             <div className="person-title-row">
@@ -3569,7 +3593,6 @@ function Person({id,nav}){
               </button>
 
             </div>
-
 
             <div className="person-meta">
 
@@ -3588,7 +3611,6 @@ function Person({id,nav}){
               </span>
 
             </div>
-
 
             {d.biography && (
               <>
@@ -3609,7 +3631,6 @@ function Person({id,nav}){
 
         </section>
 
-
         {/* FILMOGRAPHY */}
 
         <section className="person-filmography">
@@ -3621,11 +3642,12 @@ function Person({id,nav}){
               <h2>Filmography</h2>
 
               <span className="film-count">
-                {credits.length} titles
+                {filteredCredits.length} titles
               </span>
 
             </div>
 
+            {/* EXISTING ACTING / CAST TOGGLE */}
 
             <div className="person-switch">
 
@@ -3657,6 +3679,56 @@ function Person({id,nav}){
 
           </div>
 
+          {/* NEW ALL / MOVIES / TV SHOWS FILTER */}
+
+          <div
+            className="person-switch person-media-filter"
+            role="group"
+            aria-label="Filter filmography by format"
+          >
+
+            <button
+              type="button"
+              className={
+                mediaFilter==='all'
+                  ? 'switch active'
+                  : 'switch'
+              }
+              aria-pressed={mediaFilter==='all'}
+              onClick={()=>changeMediaFilter('all')}
+            >
+              All ({credits.length})
+            </button>
+
+            <button
+              type="button"
+              className={
+                mediaFilter==='movie'
+                  ? 'switch active'
+                  : 'switch'
+              }
+              aria-pressed={mediaFilter==='movie'}
+              onClick={()=>changeMediaFilter('movie')}
+            >
+              Movies ({movieCount})
+            </button>
+
+            <button
+              type="button"
+              className={
+                mediaFilter==='tv'
+                  ? 'switch active'
+                  : 'switch'
+              }
+              aria-pressed={mediaFilter==='tv'}
+              onClick={()=>changeMediaFilter('tv')}
+            >
+              TV Shows ({tvCount})
+            </button>
+
+          </div>
+
+          {/* EXISTING POSTER GRID */}
 
           {visibleCredits.length ? (
 
@@ -3688,7 +3760,6 @@ function Person({id,nav}){
 
           )}
 
-
           {/* PAGINATION */}
 
           {totalPages>1 && (
@@ -3707,11 +3778,9 @@ function Person({id,nav}){
                 Previous
               </button>
 
-
               <span>
                 Page {safePage} of {totalPages}
               </span>
-
 
               <button
                 type="button"
@@ -3741,6 +3810,8 @@ function Person({id,nav}){
     </>
   );
 }
+
+
 
 function MyList({
   lists,
