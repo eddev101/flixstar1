@@ -4009,4 +4009,18 @@ body,
   height: 100%;
   border: 0;
 }
+/* Desktop: hide when idle, including fullscreen */
+@media (hover: hover) and (pointer: fine) {
+  #flixstar-player:fullscreen .flixstar-fullscreen-button {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
 
+  #flixstar-player:fullscreen:hover .flixstar-fullscreen-button,
+  #flixstar-player:fullscreen .flixstar-fullscreen-button:focus-visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
