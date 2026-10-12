@@ -4655,9 +4655,9 @@ useEffect(()=>{
         }
       }}
     >
-      <icon-placeholder />
-      Fullscreen
-    </button>
+      >
+  <Maximize size={22} strokeWidth={2} />
+</button>
 
   )}
 
