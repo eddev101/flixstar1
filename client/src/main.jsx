@@ -4597,9 +4597,14 @@ useEffect(()=>{
 
 
       
-<div className="player" id="flixstar-player">
+
+<div
+  className="player"
+  id="flixstar-player"
+>
 
   {activeProvider ? (
+
     <iframe
       key={activeProvider.id}
       title={`${t} player`}
@@ -4608,21 +4613,27 @@ useEffect(()=>{
       allow="autoplay; fullscreen; picture-in-picture"
       referrerPolicy="no-referrer-when-downgrade"
     />
+
   ) : (
+
     <div className="player-empty">
-      <MonitorPlay size={42} />
+      <MonitorPlay size={42}/>
       <h2>No player available</h2>
       <p>
         There is currently no configured
         playback provider for this title.
       </p>
     </div>
+
   )}
 
   {activeProvider && (
+
     <button
       type="button"
       className="flixstar-fullscreen-button"
+      aria-label="Toggle fullscreen"
+      title="Toggle fullscreen"
       onClick={async () => {
         const player = document.getElementById(
           'flixstar-player'
@@ -4644,11 +4655,14 @@ useEffect(()=>{
         }
       }}
     >
+      <icon-placeholder />
       Fullscreen
     </button>
+
   )}
 
 </div>
+
 
 
 
