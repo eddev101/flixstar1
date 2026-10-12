@@ -4656,7 +4656,7 @@ useEffect(()=>{
       }}
     >
     
-  <Maximize size={22} strokeWidth={2} />
+  <Maximize size={20} strokeWidth={2} />
 </button>
 
   )}
