@@ -3843,149 +3843,46 @@ body,
 }
 
 
-#flixstar-player:fullscreen {
-  width: 100vw;
-  height: 100vh;
-  max-width: none;
-  max-height: none;
-  aspect-ratio: auto;
-  margin: 0;
+
+/* Player positioning */
+#flixstar-player {
+  position: relative;
+}
+
+/* Fullscreen button */
+.flixstar-fullscreen-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+
+  width: 44px;
+  height: 44px;
   padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: #000;
-  overflow: hidden;
-}
-
-#flixstar-player:fullscreen iframe {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-
-
-/* Player is the positioning context for the button */
-#flixstar-player {
-  position: relative;
-}
-
-/* Hidden by default on mouse-based devices */
-.flixstar-fullscreen-button {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 20;
 
   display: inline-flex;
   align-items: center;
   justify-content: center;
 
-  padding: 10px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
-
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.55);
   color: #fff;
 
-  font: inherit;
-  font-size: 14px;
   cursor: pointer;
-
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
 
-  transition:
-    opacity 0.2s ease,
-    visibility 0.2s ease;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
 }
 
-/* Reveal on hover or keyboard focus */
+/* Show on hover or keyboard navigation */
 #flixstar-player:hover .flixstar-fullscreen-button,
-#flixstar-player:focus-within .flixstar-fullscreen-button,
 #flixstar-player .flixstar-fullscreen-button:focus-visible {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-}
-
-/* Keep the button usable in fullscreen */
-#flixstar-player:fullscreen .flixstar-fullscreen-button {
-  top: 16px;
-  right: 16px;
-}
-
-/* Touchscreens have no reliable hover, so always show it */
-@media (hover: none), (pointer: coarse) {
-  .flixstar-fullscreen-button {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-  }
-}
-
-
-
-
-/* Player is the positioning context for the button */
-#flixstar-player {
-  position: relative;
-}
-
-/* Hidden by default on mouse-based devices */
-.flixstar-fullscreen-button {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 20;
-
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  padding: 10px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-
-  background: rgba(0, 0, 0, 0.8);
-  color: #fff;
-
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-
-  transition:
-    opacity 0.2s ease,
-    visibility 0.2s ease;
-}
-
-/* Reveal on hover or keyboard focus */
-#flixstar-player:hover .flixstar-fullscreen-button,
-#flixstar-player:focus-within .flixstar-fullscreen-button,
-#flixstar-player .flixstar-fullscreen-button:focus-visible {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-}
-
-/* Keep the button usable in fullscreen */
-#flixstar-player:fullscreen .flixstar-fullscreen-button {
-  top: 16px;
-  right: 16px;
-}
-
-/* Touchscreens have no reliable hover, so always show it */
-@media (hover: none), (pointer: coarse) {
-  .flixstar-fullscreen-button {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-  }
 }
 
 /* Fullscreen layout */
@@ -4003,13 +3900,21 @@ body,
   overflow: hidden;
 }
 
+/* Fill the fullscreen area with the player */
 #flixstar-player:fullscreen iframe {
   display: block;
   width: 100%;
   height: 100%;
   border: 0;
 }
-/* Desktop: hide when idle, including fullscreen */
+
+/* Slightly inset button in fullscreen */
+#flixstar-player:fullscreen .flixstar-fullscreen-button {
+  top: 16px;
+  right: 16px;
+}
+
+/* Desktop: hide when idle, show when hovered */
 @media (hover: hover) and (pointer: fine) {
   #flixstar-player:fullscreen .flixstar-fullscreen-button {
     opacity: 0;
@@ -4024,3 +3929,26 @@ body,
     pointer-events: auto;
   }
 }
+
+/* Mobile and touchscreen devices */
+@media (hover: none), (pointer: coarse) {
+  .flixstar-fullscreen-button {
+    width: 40px;
+    height: 40px;
+    top: 10px;
+    right: 10px;
+
+    background: rgba(0, 0, 0, 0.45);
+    border-color: rgba(255, 255, 255, 0.15);
+
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  #flixstar-player:fullscreen .flixstar-fullscreen-button {
+    top: 14px;
+    right: 14px;
+  }
+}
+
