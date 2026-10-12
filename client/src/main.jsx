@@ -4596,43 +4596,60 @@ useEffect(()=>{
       </div>
 
 
-      <div className="player">
+      
+<div className="player" id="flixstar-player">
 
-        {activeProvider ? (
+  {activeProvider ? (
+    <iframe
+      key={activeProvider.id}
+      title={`${t} player`}
+      src={activeProvider.url}
+      allowFullScreen
+      allow="autoplay; fullscreen; picture-in-picture"
+      referrerPolicy="no-referrer-when-downgrade"
+    />
+  ) : (
+    <div className="player-empty">
+      <MonitorPlay size={42} />
+      <h2>No player available</h2>
+      <p>
+        There is currently no configured
+        playback provider for this title.
+      </p>
+    </div>
+  )}
 
-          <iframe
-            key={activeProvider.id}
+  {activeProvider && (
+    <button
+      type="button"
+      className="flixstar-fullscreen-button"
+      onClick={async () => {
+        const player = document.getElementById(
+          'flixstar-player'
+        );
 
-            title={`${t} player`}
+        if (!player) return;
 
-            src={activeProvider.url}
+        try {
+          if (document.fullscreenElement) {
+            await document.exitFullscreen();
+          } else {
+            await player.requestFullscreen();
+          }
+        } catch (error) {
+          console.error(
+            'Flixstar fullscreen failed:',
+            error
+          );
+        }
+      }}
+    >
+      Fullscreen
+    </button>
+  )}
 
-            allowFullScreen
+</div>
 
-            allow="autoplay; fullscreen; picture-in-picture"
-
-            referrerPolicy="no-referrer-when-downgrade"
-
-          />
-
-        ):(
-
-          <div className="player-empty">
-
-            <MonitorPlay size={42}/>
-
-            <h2>No player available</h2>
-
-            <p>
-              There is currently no configured
-              playback provider for this title.
-            </p>
-
-          </div>
-
-        )}
-
-      </div>
 
 
       {error && (
