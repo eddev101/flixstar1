@@ -4347,7 +4347,6 @@ const bg=backgrounds[bgIndex]||'';
                   <div className="my-list-items">
 
                     {list.items
-                      .slice(0,6)
                       .map((item,i)=>(
 
                         <div
@@ -4406,14 +4405,6 @@ const bg=backgrounds[bgIndex]||'';
 
                 )}
 
-
-                {list.items?.length>6 && (
-
-                  <span className="my-list-more">
-                    +{list.items.length-6} more
-                  </span>
-
-                )}
 
               </article>
 
