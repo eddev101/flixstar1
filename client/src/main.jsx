@@ -245,7 +245,7 @@ const removeFromList=(item,listId)=>{
   return <Watch titleId={id} type={type} nav={nav}/>;
 }
  if(path.startsWith('/person/'))return <Person id={path.split('/')[2]} nav={nav}/>;
- if(if(path.startsWith('/movie/'))
+ if (path.startsWith('/movie/')) {
   return (
     <Detail
       type="movie"
@@ -260,8 +260,9 @@ const removeFromList=(item,listId)=>{
       setListToast={setListToast}
     />
   );
+}
 
-if(path.startsWith('/tv/'))
+if (path.startsWith('/tv/')) {
   return (
     <Detail
       type="tv"
@@ -276,6 +277,7 @@ if(path.startsWith('/tv/'))
       setListToast={setListToast}
     />
   );
+}
  if(path.startsWith('/search'))return <SearchPage q={new URLSearchParams(location.search).get('q')||''} nav={nav}/>;
   if(path.startsWith('/recommendations/')){const parts=path.split('/');return <RecommendationsPage type={parts[2]} id={parts[3]} nav={nav}/>;}
  if(path.startsWith('/movies'))
