@@ -4006,4 +4006,141 @@ body,
   }
 }
 
+/* Add to List popup */
+.detail-list-wrap {
+  position: relative;
+}
+
+.list-popup {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 1000;
+  width: 280px;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  background: #1d1d1d;
+  color: #fff;
+  box-shadow: 0 12px 32px rgba(0,0,0,.4);
+}
+
+.list-popup-title {
+  padding: 15px 17px;
+  border-bottom: 1px solid rgba(255,255,255,.09);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.list-popup-options {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.list-popup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 13px 17px;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.list-popup-row:hover,
+.list-popup-row.selected {
+  background: #343434;
+}
+
+.list-popup-new-form {
+  padding: 12px;
+  border-top: 1px solid rgba(255,255,255,.09);
+}
+
+.list-popup-new-form input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 7px;
+  background: #292929;
+  color: #fff;
+  outline: none;
+}
+
+.list-popup-create {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+
+.list-popup-confirm {
+  width: calc(100% - 24px);
+  margin: 0 12px 12px;
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #fff;
+  color: #111;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Added to... toast */
+.list-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 13px 20px;
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  box-shadow: 0 5px 24px rgba(0,0,0,.24);
+  font-size: 14px;
+  font-weight: 650;
+  transform: translateX(-50%);
+  animation: list-toast-in .2s ease-out;
+}
+
+.list-toast button {
+  border: 0;
+  background: transparent;
+  color: #555;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+@keyframes list-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (max-width: 480px) {
+  .list-popup {
+    left: auto;
+    right: -55px;
+  }
+}
 
