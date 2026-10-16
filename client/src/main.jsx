@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {Search,Settings,Home as HomeIcon,Plus,Info,Play,ChevronLeft,ChevronRight,Heart,Download,Eye,Clock3,CalendarDays,SlidersHorizontal,ArrowLeft,Share2,Check,UserRound,Bell,Film,MonitorPlay,Menu,X,ExternalLink,Volume2,Maximize,RotateCcw,Dices,ChevronDown,List} from 'lucide-react';
+import {Search,Settings,Home as HomeIcon,Plus,Info,Play,Copy,ChevronLeft,ChevronRight,Heart,Download,Eye,Clock3,CalendarDays,SlidersHorizontal,ArrowLeft,Share2,Check,UserRound,Bell,Film,MonitorPlay,Menu,X,ExternalLink,Volume2,Maximize,RotateCcw,Dices,ChevronDown,List} from 'lucide-react';
 import './styles.css';
 
 const API=import.meta.env.VITE_API_URL||(import.meta.env.DEV?'http://localhost:4000/api':'https://flixstar-api.onrender.com/api');
