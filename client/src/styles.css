@@ -4013,25 +4013,36 @@ body,
   position: relative;
 }
 
+.detail-list-wrap:has(.list-popup)::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(5px);
+}
+
 .list-popup {
-  position: absolute;
-  top: calc(100% + 10px);
-  left: 0;
-  z-index: 1000;
-  width: 280px;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 10001;
+  width: 380px;
   max-width: calc(100vw - 32px);
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 12px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
   background: #1d1d1d;
   color: #fff;
-  box-shadow: 0 12px 32px rgba(0,0,0,.4);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
 .list-popup-title {
-  padding: 15px 17px;
-  border-bottom: 1px solid rgba(255,255,255,.09);
-  font-size: 15px;
+  padding: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  font-size: 17px;
   font-weight: 700;
 }
 
@@ -4045,12 +4056,13 @@ body,
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 13px 17px;
+  padding: 14px 20px;
   border: 0;
   background: transparent;
   color: #fff;
   text-align: left;
   cursor: pointer;
+  transition: background 0.2s ease;
 }
 
 .list-popup-row:hover,
@@ -4059,20 +4071,24 @@ body,
 }
 
 .list-popup-new-form {
-  padding: 12px;
-  border-top: 1px solid rgba(255,255,255,.09);
+  padding: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
 }
 
 .list-popup-new-form input {
   box-sizing: border-box;
   width: 100%;
-  margin-bottom: 8px;
-  padding: 9px 10px;
-  border: 1px solid rgba(255,255,255,.15);
-  border-radius: 7px;
+  margin-bottom: 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
   background: #292929;
   color: #fff;
   outline: none;
+}
+
+.list-popup-new-form input:focus {
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 .list-popup-create {
@@ -4080,7 +4096,7 @@ body,
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 8px 0;
+  padding: 10px 0;
   border: 0;
   background: transparent;
   color: #fff;
@@ -4088,15 +4104,20 @@ body,
 }
 
 .list-popup-confirm {
-  width: calc(100% - 24px);
-  margin: 0 12px 12px;
-  padding: 10px;
+  width: calc(100% - 32px);
+  margin: 0 16px 16px;
+  padding: 12px;
   border: 0;
   border-radius: 8px;
   background: #fff;
   color: #111;
   font-weight: 700;
   cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.list-popup-confirm:hover {
+  background: #e5e5e5;
 }
 
 /* Added to... toast */
@@ -4113,11 +4134,11 @@ body,
   border-radius: 999px;
   background: #fff;
   color: #111;
-  box-shadow: 0 5px 24px rgba(0,0,0,.24);
+  box-shadow: 0 5px 24px rgba(0, 0, 0, 0.24);
   font-size: 14px;
   font-weight: 650;
   transform: translateX(-50%);
-  animation: list-toast-in .2s ease-out;
+  animation: list-toast-in 0.2s ease-out;
 }
 
 .list-toast button {
@@ -4141,10 +4162,11 @@ body,
 
 @media (max-width: 480px) {
   .list-popup {
-    left: auto;
-    right: -55px;
+    width: calc(100vw - 32px);
   }
 }
+
+/* download popup n more */
 
 
 .download-overlay {
