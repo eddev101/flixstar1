@@ -2878,7 +2878,17 @@ function Detail({
 
               {listPopupOpen && (
                 <div className="list-popup">
-                  <div className="list-popup-title">Add to List</div>
+                  <div className="list-popup-title">
+                    <span>Add to List</span>
+                    <button
+                      type="button"
+                      className="list-popup-close"
+                      onClick={() => setListPopupOpen(false)}
+                      aria-label="Close"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
 
                   <div className="list-popup-options">
                     {lists.map(list => {
