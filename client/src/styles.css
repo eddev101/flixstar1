@@ -4166,6 +4166,29 @@ body,
   }
 }
 
+.list-popup-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.list-popup-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+}
+
+.list-popup-close:hover {
+  background: #343434;
+  color: #fff;
+}
+
 /* download popup n more */
 
 
