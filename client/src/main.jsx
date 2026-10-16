@@ -79,7 +79,8 @@ useEffect(()=>{
   );
 },[lists]);
 
-
+const [listToast, setListToast] = useState('');
+  
 const toggleList=item=>{
   setLists(prev=>{
     const base=prev.length
@@ -166,6 +167,42 @@ const createList=name=>{
   return next;
 };
 
+  const saveItemToLists = (item, selectedIds) => {
+  const selectedNames = lists
+    .filter(list => selectedIds.includes(list.id))
+    .map(list => list.name);
+
+  setLists(prev =>
+    prev.map(list => {
+      if (!selectedIds.includes(list.id)) return list;
+
+      const items = list.items || [];
+      const exists = items.some(
+        x =>
+          x.id === item.id &&
+          mediaType(x) === mediaType(item)
+      );
+
+      return exists
+        ? list
+        : { ...list, items: [...items, item] };
+    })
+  );
+
+  let message;
+
+  if (selectedNames.length === 0) {
+    message = 'No lists selected';
+  } else if (selectedNames.length === 1) {
+    message = `Added to "${selectedNames[0]}"`;
+  } else if (selectedNames.length === 2) {
+    message = `Added to "${selectedNames[0]}" and "${selectedNames[1]}"`;
+  } else {
+    message = `Added to ${selectedNames.length} lists`;
+  }
+
+  setListToast(message);
+};
 
 const deleteList=listId=>{
   setLists(prev=>
@@ -208,8 +245,39 @@ const removeFromList=(item,listId)=>{
   return <Watch titleId={id} type={type} nav={nav}/>;
 }
  if(path.startsWith('/person/'))return <Person id={path.split('/')[2]} nav={nav}/>;
- if(path.startsWith('/movie/'))return <Detail type="movie" id={path.split('/')[2]} nav={nav} listed={isListed} toggleList={toggleList}/>;
- if(path.startsWith('/tv/'))return <Detail type="tv" id={path.split('/')[2]} nav={nav} listed={isListed} toggleList={toggleList}/>;
+ if (path.startsWith('/movie/')) {
+  return (
+    <Detail
+      type="movie"
+      id={path.split('/')[2]}
+      nav={nav}
+      listed={isListed}
+      toggleList={toggleList}
+      lists={lists}
+      createList={createList}
+      saveItemToLists={saveItemToLists}
+      listToast={listToast}
+      setListToast={setListToast}
+    />
+  );
+}
+
+if (path.startsWith('/tv/')) {
+  return (
+    <Detail
+      type="tv"
+      id={path.split('/')[2]}
+      nav={nav}
+      listed={isListed}
+      toggleList={toggleList}
+      lists={lists}
+      createList={createList}
+      saveItemToLists={saveItemToLists}
+      listToast={listToast}
+      setListToast={setListToast}
+    />
+  );
+}
  if(path.startsWith('/search'))return <SearchPage q={new URLSearchParams(location.search).get('q')||''} nav={nav}/>;
   if(path.startsWith('/recommendations/')){const parts=path.split('/');return <RecommendationsPage type={parts[2]} id={parts[3]} nav={nav}/>;}
  if(path.startsWith('/movies'))
@@ -706,13 +774,6 @@ function ContinueWatching({items,nav}){
                     FLIXSTAR
                   </div>
                 )}
-
-                  {/* Title treatment for Continue Watching.
-                      TMDB backdrops do not always contain the movie/show title,
-                      so Flixstar adds the title directly onto the landscape artwork. */}
-                  <div className="continue-art-title">
-                    {item.title||item.name}
-                  </div>
 
                   <div className="continue-overlay">
 
@@ -2474,385 +2535,678 @@ const searchBg=
   );
 }
 
-function formatDownloadSize(value){
-  if(value===undefined||value===null||value==='')return '';
-  if(typeof value==='string' && /[a-z]/i.test(value))return value;
-  const bytes=Number(value);
-  if(!Number.isFinite(bytes)||bytes<=0)return String(value);
-  const units=['B','KB','MB','GB','TB'];
-  const i=Math.min(Math.floor(Math.log(bytes)/Math.log(1024)),units.length-1);
-  return `${(bytes/Math.pow(1024,i)).toFixed(i===0?0:1)} ${units[i]}`;
-}
 
-function DownloadDialog({type,id,title,details,onClose}){
-  const [season,setSeason]=useState(1);
-  const [episode,setEpisode]=useState(1);
-  const [items,setItems]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [error,setError]=useState('');
-  const seasonList=(details?.seasons||[]).filter(s=>Number(s.season_number)>0);
-  const selectedSeason=seasonList.find(s=>Number(s.season_number)===Number(season));
-  const episodeCount=Number(selectedSeason?.episode_count)||1;
-  const downloadPath=type==='tv'
-    ? `/downloads/tv/${encodeURIComponent(id)}/${encodeURIComponent(season)}/${encodeURIComponent(episode)}`
-    : `/downloads/movie/${encodeURIComponent(id)}`;
+function DownloadModal({ type, id, title, onClose, initialSeason = 1, initialEpisode = 1, seasonCount = 1 }) {
+  const [season, setSeason] = useState(Number(initialSeason) || 1);
+  const [episode, setEpisode] = useState(Number(initialEpisode) || 1);
+  const [episodes, setEpisodes] = useState([]);
+  const [links, setLinks] = useState([]);
+  const [filter, setFilter] = useState('all');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  useEffect(()=>{
-    let cancelled=false;
-    setLoading(true);setError('');setItems([]);
-    apiFetch(downloadPath)
-      .then(payload=>{
-        if(cancelled)return;
-        const candidates=Array.isArray(payload)?payload:
-          Array.isArray(payload?.links)?payload.links:
-          Array.isArray(payload?.downloads)?payload.downloads:
-          Array.isArray(payload?.results)?payload.results:
-          Array.isArray(payload?.data)?payload.data:[];
-        const valid=candidates.map((item,index)=>({
-          ...item,
-          _key:String(item.id||item.url||item.link||index),
-          _url:item.url||item.link||item.download_url||item.href||'',
-          _name:item.name||item.source||item.provider||`Download ${index+1}`,
-          _quality:item.quality||item.resolution||item.label||'Available file',
-          _size:formatDownloadSize(item.size||item.filesize||item.file_size)
-        })).filter(item=>/^https?:\/\//i.test(item._url));
-        setItems(valid);
-        if(!valid.length)setError(payload?.message||'No downloadable files were returned for this selection.');
+  const endpoint = type === 'tv'
+    ? `https://downloads.wing.st/tv/${encodeURIComponent(id)}/${season}/${episode}`
+    : `https://downloads.wing.st/movie/${encodeURIComponent(id)}`;
+
+  useEffect(() => {
+    if (type !== 'tv') return;
+
+    let cancelled = false;
+
+    apiFetch(`/tv/${id}/season/${season}`)
+      .then(data => {
+        if (!cancelled) setEpisodes(data.episodes || []);
       })
-      .catch(err=>{
-        if(!cancelled)setError(err?.message==='Failed to fetch'
-          ? 'Could not reach the download service. Please try again later.'
-          : 'Download options could not be loaded. Please try again later.');
-      })
-      .finally(()=>{if(!cancelled)setLoading(false)});
-    return()=>{cancelled=true};
-  },[downloadPath]);
+      .catch(() => {
+        if (!cancelled) setEpisodes([]);
+      });
 
-  useEffect(()=>{
-    const onKey=e=>{if(e.key==='Escape')onClose()};
-    window.addEventListener('keydown',onKey);
-    return()=>window.removeEventListener('keydown',onKey);
-  },[onClose]);
+    return () => { cancelled = true; };
+  }, [type, id, season]);
 
-  return <div className="download-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}>
-    <section className="download-dialog" role="dialog" aria-modal="true" aria-label={`Download ${title}`}>
-      <header className="download-dialog-head">
-        <div className="download-dialog-icon"><Download size={21}/></div>
-        <div className="download-dialog-title"><h2>Download</h2><p>{title}{type==='tv'?` · Season ${season}, Episode ${episode}`:''}</p></div>
-        <button className="download-close" onClick={onClose} aria-label="Close download options"><X size={20}/></button>
-      </header>
-      {type==='tv'&&<div className="download-episode-controls">
-        <label>Season<select value={season} onChange={e=>{setSeason(Number(e.target.value));setEpisode(1)}}>
-          {(seasonList.length?seasonList:[{season_number:1,episode_count:1}]).map(s=><option key={s.season_number} value={s.season_number}>Season {s.season_number}</option>)}
-        </select></label>
-        <label>Episode<select value={episode} onChange={e=>setEpisode(Number(e.target.value))}>
-          {Array.from({length:episodeCount},(_,i)=><option key={i+1} value={i+1}>Episode {i+1}</option>)}
-        </select></label>
-      </div>}
-      <div className="download-dialog-body">
-        {loading?<div className="download-state"><span className="download-spinner"/><b>Finding available downloads…</b><p>Checking available files for this {type==='tv'?'episode':'movie'}.</p></div>
-        :error?<div className="download-state download-state-error"><div className="download-state-symbol">!</div><b>No download options available</b><p>{error}</p></div>
-        :<div className="download-results"><p className="download-results-intro">{items.length} download option{items.length===1?'':'s'} available</p>
-          {items.map((item,index)=><article className="download-option" key={item._key+index}>
-            <div className="download-file-icon"><Film size={19}/></div>
-            <div className="download-file-info"><b>{item._quality}</b><span>{item._name}{item._size?` · ${item._size}`:''}</span></div>
-            <a className="download-file-button" href={item._url} target="_blank" rel="noopener noreferrer" download><Download size={15}/> Download</a>
-          </article>)}
-        </div>}
-      </div>
-      <footer className="download-dialog-foot"><span>Only files returned by the download service are shown.</span><button onClick={onClose}>Done</button></footer>
-    </section>
-  </div>;
-}
-
-function Detail({type,id,nav,listed,toggleList}){
-  const [d,setD]=useState(null);
-  const [tab,setTab]=useState('info');
-  const [trailerOpen,setTrailerOpen]=useState(false);
-  const [downloadOpen,setDownloadOpen]=useState(false);
-  useEffect(()=>{apiFetch(`/${type}/${id}`).then(setD)},[type,id]);
-  if(!d)return <Loading/>;
-  const t=title(d);
-  return <><div className="detail-page" style={{backgroundImage:`linear-gradient(90deg,rgba(7,8,10,.9) 0%,rgba(7,8,10,.52) 45%,rgba(7,8,10,.88) 100%),linear-gradient(0deg,#070809 0%,transparent 45%),url(${BG(d.backdrop_path)})`}}><SiteNav nav={nav}/>
-  <div className="detail-inner"><button className="back" onClick={()=>nav(type==='movie'?'/movies':'/shows')}><ArrowLeft size={19}/></button><div className="detail-copy">
-   {d.logo_path ? (
-  <img
-    className={`detail-logo ${type==='tv'?'tv-detail-logo':''}`}
-    src={IMG(d.logo_path,'w500')}
-    alt={t}
-  />
-) : (
-  <h1>{t}</h1>
-)}
-
-<div className="detail-meta">
-  <span>{year(d)}</span>
-
-  {type==='tv' ? (
-    <span className="certification">
-      {d.content_ratings?.find(x=>x.iso_3166_1==='US')?.rating||'TV-MA'}
-    </span>
-  ) : (
-    <span>
-      {d.runtime
-        ? `${Math.floor(d.runtime/60)}h ${d.runtime%60}m`
-        : ''}
-    </span>
-  )}
-
-  <span>★ {d.vote_average?.toFixed(1)||'—'}</span>
-
-  {d.genres?.slice(0,3).map(g=>(
-    <span key={g.id}>{g.name}</span>
-  ))}
-</div>
-<div className="detail-buttons">
-
-  <button
-  className="white-btn"
-  onClick={()=>{
-    if(type==='tv'){
-      nav(`/watch/tv/${id}?season=1&episode=1`);
-    }else{
-      nav(`/watch/movie/${id}`);
+  useEffect(() => {
+    if (type === 'tv' && episodes.length &&
+        !episodes.some(e => Number(e.episode_number) === episode)) {
+      setEpisode(Number(episodes[0].episode_number));
     }
-  }}
->
-  <Play fill="currentColor" size={18}/>
-  Play
-</button>
+  }, [type, episodes, episode]);
 
-  <button
-    className="circle-btn"
-    onClick={()=>toggleList(d)}
-    title={listed(d)?'Remove from My List':'Add to My List'}
-  >
-    {listed(d)
-      ? <Check size={20}/>
-      : <Plus size={20}/>
-    }
-  </button>
+  useEffect(() => {
+    let cancelled = false;
 
-  <button
-    className="circle-btn"
-    onClick={()=>setDownloadOpen(true)}
-    title="Download"
-    aria-label={`Download ${t}`}
-  >
-    <Download size={20}/>
-  </button>
+    async function loadLinks() {
+      setLoading(true);
+      setError('');
+      setLinks([]);
 
-  <button
-    className="circle-btn"
-    onClick={()=>{
-      localStorage.setItem(
-        `flixstar-watched-${type}-${id}`,
-        'true'
-      );
-      window.dispatchEvent(new Event('flixstar-watched'));
-    }}
-    title="Mark as watched"
-  >
-    <Eye size={20}/>
-  </button>
+      try {
+        const response = await fetch(endpoint);
 
-  <button
-    className="circle-btn"
-    onClick={()=>{
-      if(navigator.share){
-        navigator.share({
-          title:t,
-          text:`Check out ${t} on Flixstar`
-        }).catch(()=>{});
+        if (!response.ok) {
+          throw new Error(`Download service returned ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (!Array.isArray(data.links)) {
+          throw new Error('The response did not contain a links array.');
+        }
+
+        if (!cancelled) setLinks(data.links);
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err.message === 'Failed to fetch'
+              ? 'Could not reach the download service. It may block browser requests.'
+              : err.message || 'Could not load download links.'
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    }}
-    title="Share"
-  >
-    <Share2 size={20}/>
-  </button>
+    }
 
-</div><p className="detail-overview">{d.overview}</p><div className="credits-line">
-  <b>{type==='tv'?'Creator':'Director'}</b>{' '}
-  {type==='tv'
-    ? (d.created_by?.map(x=>x.name).join(', ')||'—')
-    : (d.credits?.crew?.find(c=>c.job==='Director')?.name||'—')
-  }
-</div></div>
-<aside className={`facts ${type==='tv'?'tv-facts':''}`}>
-  {type==='tv' ? (
-    <>
-      <div>
-        <span>Status</span>
-        <b>{d.status||'—'}</b>
-      </div>
+    loadLinks();
 
-      <div>
-        <span>Language</span>
-        <b>{d.original_language?.toUpperCase()||'—'}</b>
-      </div>
+    return () => { cancelled = true; };
+  }, [endpoint]);
 
-      <div>
-        <span>First Aired</span>
-        <b>{d.first_air_date||'—'}</b>
-      </div>
+  const filteredLinks = links.filter(link => {
+    if (filter === '4k') return Number(link.quality) >= 2160;
+    if (filter === '1080p') return Number(link.quality) === 1080;
+    return true;
+  });
 
-      <div>
-        <span>Last Aired</span>
-        <b>{d.last_air_date||'—'}</b>
-      </div>
-
-      <div>
-        <span>Seasons</span>
-        <b>{d.number_of_seasons||0}</b>
-      </div>
-
-      <div>
-        <span>Episodes</span>
-        <b>{d.number_of_episodes||0}</b>
-      </div>
-    </>
-  ) : (
-    <>
-      <div>
-        <span>Runtime</span>
-        <b>
-          {d.runtime
-            ? `${Math.floor(d.runtime/60)}h ${d.runtime%60}m`
-            : '—'}
-        </b>
-      </div>
-
-      <div>
-        <span>Language</span>
-        <b>{d.original_language?.toUpperCase()||'—'}</b>
-      </div>
-
-      <div>
-        <span>Release Date</span>
-        <b>
-          {d.release_date
-            ? new Date(d.release_date).toLocaleDateString('en-US',{
-                month:'short',
-                day:'numeric',
-                year:'numeric'
-              })
-            : '—'}
-        </b>
-      </div>
-
-      <div>
-        <span>Budget</span>
-        <b>
-          {d.budget
-            ? `$${d.budget.toLocaleString()}`
-            : '—'}
-        </b>
-      </div>
-
-      {d.production_companies?.length>0 && (
-        <div className="production-companies">
-          {d.production_companies
-            .filter(company=>company.logo_path)
-            .slice(0,4)
-            .map(company=>(
-              <img
-                key={company.id}
-                src={IMG(company.logo_path,'w200')}
-                alt={company.name}
-                title={company.name}
-              />
-            ))}
-        </div>
-      )}
-    </>
-  )}
-
-  {type==='tv' && d.networks?.length>0 && (
-    <div className="detail-network-logos">
-      {d.networks
-        .filter(n=>n.logo_path)
-        .slice(0,2)
-        .map(n=>(
-          <img
-            key={n.id}
-            src={IMG(n.logo_path,'w200')}
-            alt={n.name}
-          />
-        ))}
-    </div>
-  )}
-</aside></div></div>
-{downloadOpen&&<DownloadDialog type={type} id={id} title={t} details={d} onClose={()=>setDownloadOpen(false)}/>}
-{type==='tv'&&<Episodes d={d} nav={nav}/>}
-
-<section className="below-detail" id="cast">
-  {d.credits?.cast?.length>0&&
-    <CastRow cast={d.credits.cast} nav={nav}/>
+  async function copyLink(url) {
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      window.prompt('Copy this download link:', url);
+    }
   }
 
-  {type==='movie'&&d.trailers?.length>0&&
-  <TrailerSection
-    trailers={d.trailers}
-    onOpen={setTrailerOpen}
-  />
-}
-
-{type==='movie'&&d.collection&&
-  <CollectionRow
-    collection={d.collection}
-    nav={nav}
-    currentId={d.id}
-  />
-}
-
-<Recommendation
-  title="You Might Also Like"
-  items={d.recommendations?.results?.length
-    ? d.recommendations.results
-    : d.similar?.results||[]
-  }
-  nav={nav}
-/>
-</section>
-
-{trailerOpen&&(
-  <div
-    className="trailer-modal"
-    onClick={()=>setTrailerOpen(null)}
-  >
-    <div
-      className="trailer-modal-box"
-      onClick={e=>e.stopPropagation()}
-    >
-      <button
-        className="trailer-close"
-        onClick={()=>setTrailerOpen(null)}
-        aria-label="Close trailer"
+  return (
+    <div className="download-overlay" onClick={onClose}>
+      <section
+        className="download-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Downloads for ${title}`}
+        onClick={e => e.stopPropagation()}
       >
-        <X size={22}/>
-      </button>
+        <header className="download-modal-header">
+          <h2>Downloads for {title}</h2>
+          <button className="download-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </header>
 
-      <div className="trailer-player">
-        <iframe
-          src={`https://www.youtube.com/embed/${trailerOpen.key}?autoplay=1&rel=0`}
-          title={trailerOpen.name}
-          allow="autoplay; encrypted-media; picture-in-picture"
-          allowFullScreen
-        />
-      </div>
+        {type === 'tv' && (
+          <div className="download-selectors">
+            <label>
+              <span className="sr-only">Season</span>
+              <select
+                value={season}
+                onChange={e => {
+                  setSeason(Number(e.target.value));
+                  setEpisode(1);
+                }}
+              >
+                {Array.from({ length: Math.max(1, Number(seasonCount) || 1) }, (_, i) => (
+                  <option key={i + 1} value={i + 1}>Season {i + 1}</option>
+                ))}
+              </select>
+            </label>
 
-      <div className="trailer-modal-info">
-        <h3>{trailerOpen.name}</h3>
+            <label>
+              <span className="sr-only">Episode</span>
+              <select
+                value={episode}
+                onChange={e => setEpisode(Number(e.target.value))}
+              >
+                {episodes.map(e => (
+                  <option key={e.episode_number} value={e.episode_number}>
+                    Episode {e.episode_number}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
 
-        <span>
-          {trailerOpen.type}
-          {trailerOpen.official?' · Official':''}
-        </span>
+        <div className="download-toolbar">
+          <span>
+            {loading ? 'Finding links…' : `Found ${links.length} links`}
+          </span>
+
+          <div className="download-filters">
+            {[
+              ['all', 'All'],
+              ['4k', '4K'],
+              ['1080p', '1080p']
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                className={filter === value ? 'active' : ''}
+                onClick={() => setFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loading && <p className="download-message">Loading download options…</p>}
+        {!loading && error && <p className="download-message download-error">{error}</p>}
+        {!loading && !error && links.length === 0 && (
+          <p className="download-message">No download links are available for this selection.</p>
+        )}
+        {!loading && !error && links.length > 0 && filteredLinks.length === 0 && (
+          <p className="download-message">No links match this quality filter.</p>
+        )}
+
+        <div className="download-list">
+          {filteredLinks.map((link, index) => (
+            <article className="download-item" key={`${link.url}-${index}`}>
+              <div className="download-item-info">
+                <strong>{link.source || link.provider || 'Download'}</strong>
+                <div className="download-item-meta">
+                  {link.quality ? `${link.quality}p` : 'Quality unavailable'}
+                  {link.size ? ` · ${link.size}` : ''}
+                </div>
+                <p>{link.name || link.filename || link.provider || ''}</p>
+              </div>
+
+              <div className="download-item-actions">
+                <button
+                  className="download-copy"
+                  title="Copy download link"
+                  aria-label="Copy download link"
+                  onClick={() => copyLink(link.url)}
+                >
+                  <Copy size={18} />
+                </button>
+
+                <a
+                  className="download-action"
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Download size={18} />
+                  Download
+                </a>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+
+function Detail({
+  type,
+  id,
+  nav,
+  listed,
+  toggleList,
+  lists = [],
+  createList,
+  saveItemToLists,
+  listToast,
+  setListToast
+}) {
+  const [d, setD] = useState(null);
+  const [tab, setTab] = useState('info');
+  const [trailerOpen, setTrailerOpen] = useState(false);
+  const [listPopupOpen, setListPopupOpen] = useState(false);
+  const [selectedListIds, setSelectedListIds] = useState([]);
+  const [newListName, setNewListName] = useState('');
+  const [downloadOpen, setDownloadOpen] = useState(false);
+
+  useEffect(() => {
+    apiFetch(`/${type}/${id}`).then(setD);
+  }, [type, id]);
+
+  useEffect(() => {
+    if (!listToast) return;
+
+    const timer = setTimeout(() => setListToast(''), 2600);
+    return () => clearTimeout(timer);
+  }, [listToast, setListToast]);
+
+  const openListPopup = () => {
+    setSelectedListIds(
+      lists
+        .filter(list =>
+          (list.items || []).some(
+            item =>
+              item.id === d.id &&
+              mediaType(item) === mediaType(d)
+          )
+        )
+        .map(list => list.id)
+    );
+
+    setNewListName('');
+    setListPopupOpen(open => !open);
+  };
+
+  if (!d) return <Loading />;
+
+  const t = title(d);
+
+  return <>
+    <div
+      className="detail-page"
+      style={{
+        backgroundImage: `linear-gradient(90deg,rgba(7,8,10,.9) 0%,rgba(7,8,10,.52) 45%,rgba(7,8,10,.88) 100%),linear-gradient(0deg,#070809 0%,transparent 45%),url(${BG(d.backdrop_path)})`
+      }}
+    >
+      <SiteNav nav={nav} />
+
+      <div className="detail-inner">
+        <button
+          className="back"
+          onClick={() => nav(type === 'movie' ? '/movies' : '/shows')}
+        >
+          <ArrowLeft size={19} />
+        </button>
+
+        <div className="detail-copy">
+          {d.logo_path ? (
+            <img
+              className={`detail-logo ${type === 'tv' ? 'tv-detail-logo' : ''}`}
+              src={IMG(d.logo_path, 'w500')}
+              alt={t}
+            />
+          ) : (
+            <h1>{t}</h1>
+          )}
+
+          <div className="detail-meta">
+            <span>{year(d)}</span>
+
+            {type === 'tv' ? (
+              <span className="certification">
+                {d.content_ratings?.find(x => x.iso_3166_1 === 'US')?.rating || 'TV-MA'}
+              </span>
+            ) : (
+              <span>
+                {d.runtime
+                  ? `${Math.floor(d.runtime / 60)}h ${d.runtime % 60}m`
+                  : ''}
+              </span>
+            )}
+
+            <span>★ {d.vote_average?.toFixed(1) || '—'}</span>
+
+            {d.genres?.slice(0, 3).map(g => (
+              <span key={g.id}>{g.name}</span>
+            ))}
+          </div>
+
+          <div className="detail-buttons">
+            <button
+              className="white-btn"
+              onClick={() => {
+                if (type === 'tv') {
+                  nav(`/watch/tv/${id}?season=1&episode=1`);
+                } else {
+                  nav(`/watch/movie/${id}`);
+                }
+              }}
+            >
+              <Play fill="currentColor" size={18} />
+              Play
+            </button>
+
+            <div className="detail-list-wrap">
+              <button
+                type="button"
+                className="circle-btn"
+                onClick={openListPopup}
+                title="Add to List"
+                aria-label="Add to List"
+                aria-expanded={listPopupOpen}
+              >
+                {listed(d) ? <Check size={20} /> : <Plus size={20} />}
+              </button>
+
+              {listPopupOpen && (
+                <div className="list-popup">
+                  <div className="list-popup-title">Add to List</div>
+
+                  <div className="list-popup-options">
+                    {lists.map(list => {
+                      const selected = selectedListIds.includes(list.id);
+
+                      return (
+                        <button
+                          type="button"
+                          key={list.id}
+                          className={`list-popup-row ${selected ? 'selected' : ''}`}
+                          onClick={() => {
+                            setSelectedListIds(prev =>
+                              prev.includes(list.id)
+                                ? prev.filter(listId => listId !== list.id)
+                                : [...prev, list.id]
+                            );
+                          }}
+                        >
+                          <span>{list.name}</span>
+                          {selected && <Check size={18} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <form
+                    className="list-popup-new-form"
+                    onSubmit={e => {
+                      e.preventDefault();
+
+                      const clean = newListName.trim();
+                      if (!clean) return;
+
+                      const created = createList(clean);
+
+                      if (created) {
+                        setSelectedListIds(prev =>
+                          prev.includes(created.id)
+                            ? prev
+                            : [...prev, created.id]
+                        );
+                        setNewListName('');
+                      }
+                    }}
+                  >
+                    <input
+                      value={newListName}
+                      onChange={e => setNewListName(e.target.value)}
+                      placeholder="New list name"
+                      maxLength={40}
+                      aria-label="New list name"
+                    />
+
+                    <button
+                      type="submit"
+                      className="list-popup-create"
+                    >
+                      <Plus size={17} />
+                      Create New List
+                    </button>
+                  </form>
+
+                  <button
+                    type="button"
+                    className="list-popup-confirm"
+                    onClick={() => {
+                      saveItemToLists(d, selectedListIds);
+                      setListPopupOpen(false);
+                    }}
+                  >
+                    Confirm
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <button
+            type="button"
+            className="circle-btn"
+            title="Download"
+            aria-label={`Download ${t}`}
+            onClick={() => setDownloadOpen(true)}
+          >
+            <Download size={20} />
+          </button>
+
+            <button
+              className="circle-btn"
+              onClick={() => {
+                localStorage.setItem(`flixstar-watched-${type}-${id}`, 'true');
+                window.dispatchEvent(new Event('flixstar-watched'));
+              }}
+              title="Mark as watched"
+            >
+              <Eye size={20} />
+            </button>
+
+            <button
+              className="circle-btn"
+              onClick={() => {
+                if (navigator.share) {
+                  navigator.share({
+                    title: t,
+                    text: `Check out ${t} on Flixstar`
+                  }).catch(() => {});
+                }
+              }}
+              title="Share"
+            >
+              <Share2 size={20} />
+            </button>
+          </div>
+
+          <p className="detail-overview">{d.overview}</p>
+
+          <div className="credits-line">
+            <b>{type === 'tv' ? 'Creator' : 'Director'}</b>{' '}
+            {type === 'tv'
+              ? (d.created_by?.map(x => x.name).join(', ') || '—')
+              : (d.credits?.crew?.find(c => c.job === 'Director')?.name || '—')}
+          </div>
+        </div>
+
+        <aside className={`facts ${type === 'tv' ? 'tv-facts' : ''}`}>
+          {type === 'tv' ? (
+            <>
+              <div>
+                <span>Status</span>
+                <b>{d.status || '—'}</b>
+              </div>
+
+              <div>
+                <span>Language</span>
+                <b>{d.original_language?.toUpperCase() || '—'}</b>
+              </div>
+
+              <div>
+                <span>First Aired</span>
+                <b>{d.first_air_date || '—'}</b>
+              </div>
+
+              <div>
+                <span>Last Aired</span>
+                <b>{d.last_air_date || '—'}</b>
+              </div>
+
+              <div>
+                <span>Seasons</span>
+                <b>{d.number_of_seasons || 0}</b>
+              </div>
+
+              <div>
+                <span>Episodes</span>
+                <b>{d.number_of_episodes || 0}</b>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <span>Runtime</span>
+                <b>
+                  {d.runtime
+                    ? `${Math.floor(d.runtime / 60)}h ${d.runtime % 60}m`
+                    : '—'}
+                </b>
+              </div>
+
+              <div>
+                <span>Language</span>
+                <b>{d.original_language?.toUpperCase() || '—'}</b>
+              </div>
+
+              <div>
+                <span>Release Date</span>
+                <b>
+                  {d.release_date
+                    ? new Date(d.release_date).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })
+                    : '—'}
+                </b>
+              </div>
+
+              <div>
+                <span>Budget</span>
+                <b>
+                  {d.budget
+                    ? `$${d.budget.toLocaleString()}`
+                    : '—'}
+                </b>
+              </div>
+
+              {d.production_companies?.length > 0 && (
+                <div className="production-companies">
+                  {d.production_companies
+                    .filter(company => company.logo_path)
+                    .slice(0, 4)
+                    .map(company => (
+                      <img
+                        key={company.id}
+                        src={IMG(company.logo_path, 'w200')}
+                        alt={company.name}
+                        title={company.name}
+                      />
+                    ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {type === 'tv' && d.networks?.length > 0 && (
+            <div className="detail-network-logos">
+              {d.networks
+                .filter(n => n.logo_path)
+                .slice(0, 2)
+                .map(n => (
+                  <img
+                    key={n.id}
+                    src={IMG(n.logo_path, 'w200')}
+                    alt={n.name}
+                  />
+                ))}
+            </div>
+          )}
+        </aside>
       </div>
     </div>
-  </div>
+
+    {type === 'tv' && <Episodes d={d} nav={nav} />}
+
+    <section className="below-detail" id="cast">
+      {d.credits?.cast?.length > 0 &&
+        <CastRow cast={d.credits.cast} nav={nav} />
+      }
+
+      {type === 'movie' && d.trailers?.length > 0 && (
+        <TrailerSection
+          trailers={d.trailers}
+          onOpen={setTrailerOpen}
+        />
+      )}
+
+      {type === 'movie' && d.collection && (
+        <CollectionRow
+          collection={d.collection}
+          nav={nav}
+          currentId={d.id}
+        />
+      )}
+
+      <Recommendation
+        title="You Might Also Like"
+        items={d.recommendations?.results?.length
+          ? d.recommendations.results
+          : d.similar?.results || []
+        }
+        nav={nav}
+      />
+    </section>
+
+    {trailerOpen && (
+      <div
+        className="trailer-modal"
+        onClick={() => setTrailerOpen(null)}
+      >
+        <div
+          className="trailer-modal-box"
+          onClick={e => e.stopPropagation()}
+        >
+          <button
+            className="trailer-close"
+            onClick={() => setTrailerOpen(null)}
+            aria-label="Close trailer"
+          >
+            <X size={22} />
+          </button>
+
+          <div className="trailer-player">
+            <iframe
+              src={`https://www.youtube.com/embed/${trailerOpen.key}?autoplay=1&rel=0`}
+              title={trailerOpen.name}
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+
+          <div className="trailer-modal-info">
+            <h3>{trailerOpen.name}</h3>
+
+            <span>
+              {trailerOpen.type}
+              {trailerOpen.official ? ' · Official' : ''}
+            </span>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {listToast && (
+      <div className="list-toast" role="status">
+        <Check size={18} />
+        <span>{listToast}</span>
+        <button
+          type="button"
+          onClick={() => setListToast('')}
+          aria-label="Dismiss notification"
+        >
+          ×
+        </button>
+      </div>
+    )}
+
+    {downloadOpen && (
+  <DownloadModal
+    type={type}
+    id={id}
+    title={t}
+    seasonCount={d.number_of_seasons || 1}
+    onClose={() => setDownloadOpen(false)}
+  />
 )}
-<Footer nav={nav}/></>}
+
+    <Footer nav={nav} />
+  </>;
+}
+
 
 function Episodes({d,nav}){
   const [season,setSeason]=useState(1);
@@ -3487,6 +3841,8 @@ function Recommendation({title,items,nav}){
   );
 }
 
+
+
 function Person({id,nav}){
 
   const [d,setD]=useState(null);
@@ -3514,9 +3870,8 @@ function Person({id,nav}){
   const crew=d.combined_credits?.crew||[];
 
   /*
-    "Acting" = everything the person acted in.
-    "Cast" = crew credits, keeping the second tab useful
-    while matching the requested two-tab design.
+    Acting = acting credits.
+    Cast = crew credits, preserving your existing behavior.
   */
   const source=
     mode==='acting'
@@ -3564,30 +3919,40 @@ function Person({id,nav}){
 
     });
 
-  const movieCount=credits.filter(x=>x.media_type==='movie').length;
-  const tvCount=credits.filter(x=>x.media_type==='tv').length;
+  /* COUNTS BY MEDIA TYPE */
+
+  const movieCount=credits.filter(
+    x=>x.media_type==='movie'
+  ).length;
+
+  const tvCount=credits.filter(
+    x=>x.media_type==='tv'
+  ).length;
+
+  /* ALL / MOVIES / TV SHOWS FILTER */
 
   const filteredCredits=credits.filter(x=>
-    mediaFilter==='all' || x.media_type===mediaFilter
+    mediaFilter==='all' ||
+    x.media_type===mediaFilter
   );
 
-  const totalPages=
-    Math.max(
-      1,
-      Math.ceil(filteredCredits.length/PER_PAGE)
-    );
+  /* PAGINATION BASED ON FILTERED RESULTS */
 
-  const safePage=
-    Math.min(page,totalPages);
+  const totalPages=Math.max(
+    1,
+    Math.ceil(filteredCredits.length/PER_PAGE)
+  );
 
-  const start=
-    (safePage-1)*PER_PAGE;
+  const safePage=Math.min(page,totalPages);
 
-  const visibleCredits=
-    filteredCredits.slice(
-      start,
-      start+PER_PAGE
-    );
+  const start=(safePage-1)*PER_PAGE;
+
+  const visibleCredits=filteredCredits.slice(
+    start,
+    start+PER_PAGE
+  );
+
+  /* AGE CALCULATION */
 
   const birthDate=d.birthday
     ? new Date(d.birthday)
@@ -3635,6 +4000,12 @@ function Person({id,nav}){
     scrollTop();
   };
 
+  const changeMediaFilter=next=>{
+    setMediaFilter(next);
+    setPage(1);
+    scrollTop();
+  };
+
   const changePage=next=>{
     setPage(next);
     scrollTop();
@@ -3667,7 +4038,6 @@ function Person({id,nav}){
 
           </div>
 
-
           <div className="person-info">
 
             <div className="person-title-row">
@@ -3683,7 +4053,6 @@ function Person({id,nav}){
               </button>
 
             </div>
-
 
             <div className="person-meta">
 
@@ -3702,7 +4071,6 @@ function Person({id,nav}){
               </span>
 
             </div>
-
 
             {d.biography && (
               <>
@@ -3723,7 +4091,6 @@ function Person({id,nav}){
 
         </section>
 
-
         {/* FILMOGRAPHY */}
 
         <section className="person-filmography">
@@ -3740,6 +4107,7 @@ function Person({id,nav}){
 
             </div>
 
+            {/* EXISTING ACTING / CAST TOGGLE */}
 
             <div className="person-switch">
 
@@ -3771,34 +4139,56 @@ function Person({id,nav}){
 
           </div>
 
-          <div className="person-switch person-media-filter" role="group" aria-label="Filter filmography by format">
+          {/* NEW ALL / MOVIES / TV SHOWS FILTER */}
+
+          <div
+            className="person-switch person-media-filter"
+            role="group"
+            aria-label="Filter filmography by format"
+          >
+
             <button
               type="button"
-              className={mediaFilter==='all' ? 'switch active' : 'switch'}
+              className={
+                mediaFilter==='all'
+                  ? 'switch active'
+                  : 'switch'
+              }
               aria-pressed={mediaFilter==='all'}
-              onClick={()=>setMediaFilter('all')}
+              onClick={()=>changeMediaFilter('all')}
             >
               All ({credits.length})
             </button>
 
             <button
               type="button"
-              className={mediaFilter==='movie' ? 'switch active' : 'switch'}
+              className={
+                mediaFilter==='movie'
+                  ? 'switch active'
+                  : 'switch'
+              }
               aria-pressed={mediaFilter==='movie'}
-              onClick={()=>setMediaFilter('movie')}
+              onClick={()=>changeMediaFilter('movie')}
             >
               Movies ({movieCount})
             </button>
 
             <button
               type="button"
-              className={mediaFilter==='tv' ? 'switch active' : 'switch'}
+              className={
+                mediaFilter==='tv'
+                  ? 'switch active'
+                  : 'switch'
+              }
               aria-pressed={mediaFilter==='tv'}
-              onClick={()=>setMediaFilter('tv')}
+              onClick={()=>changeMediaFilter('tv')}
             >
               TV Shows ({tvCount})
             </button>
+
           </div>
+
+          {/* EXISTING POSTER GRID */}
 
           {visibleCredits.length ? (
 
@@ -3830,7 +4220,6 @@ function Person({id,nav}){
 
           )}
 
-
           {/* PAGINATION */}
 
           {totalPages>1 && (
@@ -3849,11 +4238,9 @@ function Person({id,nav}){
                 Previous
               </button>
 
-
               <span>
                 Page {safePage} of {totalPages}
               </span>
-
 
               <button
                 type="button"
@@ -3883,6 +4270,8 @@ function Person({id,nav}){
     </>
   );
 }
+
+
 
 function MyList({
   lists,
@@ -4186,7 +4575,6 @@ const bg=backgrounds[bgIndex]||'';
                   <div className="my-list-items">
 
                     {list.items
-                      .slice(0,6)
                       .map((item,i)=>(
 
                         <div
@@ -4245,14 +4633,6 @@ const bg=backgrounds[bgIndex]||'';
 
                 )}
 
-
-                {list.items?.length>6 && (
-
-                  <span className="my-list-more">
-                    +{list.items.length-6} more
-                  </span>
-
-                )}
 
               </article>
 
@@ -4667,43 +5047,74 @@ useEffect(()=>{
       </div>
 
 
-      <div className="player">
+      
 
-        {activeProvider ? (
+<div
+  className="player"
+  id="flixstar-player"
+>
 
-          <iframe
-            key={activeProvider.id}
+  {activeProvider ? (
 
-            title={`${t} player`}
+    <iframe
+      key={activeProvider.id}
+      title={`${t} player`}
+      src={activeProvider.url}
+      allowFullScreen
+      allow="autoplay; fullscreen; picture-in-picture"
+      referrerPolicy="no-referrer-when-downgrade"
+    />
 
-            src={activeProvider.url}
+  ) : (
 
-            allowFullScreen
+    <div className="player-empty">
+      <MonitorPlay size={42}/>
+      <h2>No player available</h2>
+      <p>
+        There is currently no configured
+        playback provider for this title.
+      </p>
+    </div>
 
-            allow="autoplay; fullscreen; picture-in-picture"
+  )}
 
-            referrerPolicy="no-referrer-when-downgrade"
+  {activeProvider && (
 
-          />
+    <button
+      type="button"
+      className="flixstar-fullscreen-button"
+      aria-label="Toggle fullscreen"
+      title="Toggle fullscreen"
+      onClick={async () => {
+        const player = document.getElementById(
+          'flixstar-player'
+        );
 
-        ):(
+        if (!player) return;
 
-          <div className="player-empty">
+        try {
+          if (document.fullscreenElement) {
+            await document.exitFullscreen();
+          } else {
+            await player.requestFullscreen();
+          }
+        } catch (error) {
+          console.error(
+            'Flixstar fullscreen failed:',
+            error
+          );
+        }
+      }}
+    >
+    
+  <Maximize size={20} strokeWidth={2} />
+</button>
 
-            <MonitorPlay size={42}/>
+  )}
 
-            <h2>No player available</h2>
+</div>
 
-            <p>
-              There is currently no configured
-              playback provider for this title.
-            </p>
 
-          </div>
-
-        )}
-
-      </div>
 
 
       {error && (
