@@ -25,8 +25,6 @@ Build the client with `npm run build`. Serve `client/dist` with your preferred h
 - Continue watching
 - Licensed playback integration
 - SEO metadata and sitemap
-- PWA/mobile install support
-- Admin dashboard
 
 ## Cross-device sync (accounts)
 Lists, Continue Watching, watched titles and settings sync across devices for signed-in users.
@@ -49,3 +47,22 @@ to a free no-key IMDb source, and finally to TMDB scores.
 ## Resume playback
 Servers that accept a start time in the embed URL (currently Videasy, Vidplus, Vidlink, Vidfast) open at the saved
 position. Add more in `RESUME_PARAMS` in `client/src/main.jsx`.
+
+## Install as an app (PWA)
+Flixstar is installable on Android, iPhone (Safari → Share → Add to Home Screen) and desktop Chrome/Edge.
+Settings → App → Install app shows the right option for each device. The service worker (`client/public/sw.js`)
+caches the app shell and TMDB images; API calls and players are never cached. Bump `VERSION` in `sw.js`
+if you ever need to force-clear old caches.
+
+## Admin dashboard (`/admin`)
+1. Re-run `supabase/schema.sql` (safe to run again; it adds the admin tables).
+2. Sign in on the site once with your email, then in Supabase SQL Editor run:
+   ```sql
+   insert into public.admins (user_id)
+   select id from auth.users where email = 'YOUR_EMAIL_HERE'
+   on conflict do nothing;
+   ```
+3. Open Settings → Admin dashboard (or go to `/admin`).
+
+Shows users (email, joined, last active, saved/in-progress counts), most saved and most watched titles,
+API server status, and lets you publish a site-wide announcement banner.

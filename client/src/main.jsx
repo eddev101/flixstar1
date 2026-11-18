@@ -4,7 +4,11 @@ import {Search,Settings,Home as HomeIcon,Plus,Info,Play,Copy,ChevronLeft,Chevron
 import './styles.css';
 import {startSync,subscribeSync,getSyncState,syncNow,sendLoginCode,verifyLoginCode,signOut,syncConfigured,readSettings,writeSettings} from './sync.js';
 
+import {checkIsAdmin,loadAdminData,getSiteConfig,setSiteConfig,computeStats} from './admin.js';
+import {startPwa,getInstallState,subscribeInstall,promptInstall} from './pwa.js';
+
 startSync();
+startPwa();
 
 const API=import.meta.env.VITE_API_URL||(import.meta.env.DEV?'http://localhost:4000/api':'https://flixstar-api.onrender.com/api');
 const IMG=(p,size='w500')=>p?`https://image.tmdb.org/t/p/${size}${p}`:'';
@@ -42,7 +46,11 @@ async function apiFetch(path,options={}){
 function useRoute(){const [path,setPath]=useState(location.pathname+location.search);useEffect(()=>{const f=()=>setPath(location.pathname+location.search);addEventListener('popstate',f);return()=>removeEventListener('popstate',f)},[]);const nav=p=>{history.pushState({},'',p);setPath(p);window.scrollTo({top:0,behavior:'smooth'})};return {path,nav}}
 
 function App(){
- const {path,nav}=useRoute(); const [query,setQuery]=useState(''); const [menu,setMenu]=useState(false);
+  const {path,nav}=useRoute();
+  return <>{!path.startsWith('/watch/') && <SiteAnnouncement/>}<AppRoutes path={path} nav={nav}/></>;
+}
+
+function AppRoutes({path,nav}){ const [query,setQuery]=useState(''); const [menu,setMenu]=useState(false);
  const goSearch=e=>{e.preventDefault();if(query.trim())nav(`/search?q=${encodeURIComponent(query.trim())}`)};
 const [lists,setLists]=useState(()=>{
   try{
@@ -326,6 +334,7 @@ if(path==='/my-list')
     removeFromList={removeFromList}
 />;
  if(path==='/settings')return <SettingsPage nav={nav}/>;
+ if(path==='/admin')return <AdminPage nav={nav}/>;
  return <><Home
   nav={nav}
   listed={isListed}
@@ -4936,6 +4945,40 @@ function AccountSettings(){
   );
 }
 
+function InstallAppSetting(){
+  const [st,setSt]=useState(()=>getInstallState());
+  const [showIos,setShowIos]=useState(false);
+  useEffect(()=>subscribeInstall(setSt),[]);
+
+  let text='Install Flixstar on your home screen or desktop for a full-screen, app-like experience';
+  let action=null;
+
+  if(st.installed){
+    text='Flixstar is installed on this device';
+  }else if(st.canPrompt){
+    action=<button className="small-btn" onClick={()=>promptInstall()}><Download size={14}/> Install</button>;
+  }else if(st.ios){
+    action=<button className="small-btn" onClick={()=>setShowIos(x=>!x)}>How to install</button>;
+  }else{
+    text+=' (use your browser menu → "Install app" or "Add to Home screen")';
+  }
+
+  return (
+    <div className="setting">
+      <div>
+        <b>Install app</b>
+        <p>{text}</p>
+        {showIos && (
+          <p className="setting-note">
+            In Safari, tap the <b>Share</b> button, then <b>Add to Home Screen</b>.
+          </p>
+        )}
+      </div>
+      {action}
+    </div>
+  );
+}
+
 function SettingsPage({nav}){
   const [settings,setSettings]=useState(()=>readSettings());
   const [servers,setServers]=useState(FALLBACK_SERVERS);
@@ -5020,6 +5063,11 @@ function SettingsPage({nav}){
           <AccountSettings/>
         </div>
 
+        <h3 className="settings-group-title">App</h3>
+        <div className="settings-card">
+          <InstallAppSetting/>
+        </div>
+
         <h3 className="settings-group-title">Playback</h3>
         <div className="settings-card">
           <div className="setting">
@@ -5100,6 +5148,8 @@ function SettingsPage({nav}){
           </div>
         </div>
 
+        <AdminSettingLinkCard nav={nav}/>
+
         <h3 className="settings-group-title">About</h3>
         <div className="settings-card">
           <div className="setting">
@@ -5158,6 +5208,308 @@ function findSavedProgress(type,id,season,episode){
       Number(x.episode)===Number(episode)
     ))
   )||null;
+}
+
+/*
+  ==========================================
+  SITE ANNOUNCEMENT (set from the admin dashboard)
+  ==========================================
+*/
+function SiteAnnouncement(){
+  const [a,setA]=useState(null);
+  const [dismissed,setDismissed]=useState(()=>{
+    try{return localStorage.getItem('flixstar-dismissed-announcement')||'';}catch{return '';}
+  });
+
+  useEffect(()=>{
+    let alive=true;
+    const load=()=>getSiteConfig('announcement').then(x=>{if(alive)setA(x);});
+    load();
+    window.addEventListener('flixstar-announcement',load);
+    return()=>{alive=false;window.removeEventListener('flixstar-announcement',load);};
+  },[]);
+
+  if(!a?.enabled||!a?.text)return null;
+  const id=a.updatedAt||a.text;
+  if(dismissed===id)return null;
+
+  return (
+    <div className={`site-announcement ${a.tone==='warning'?'warning':''}`} role="status">
+      <Bell size={15}/>
+      <span>
+        {a.text}
+        {a.link && (
+          <> <a href={a.link} target={a.link.startsWith('/')?undefined:'_blank'} rel="noopener noreferrer">{a.linkText||'Learn more'}</a></>
+        )}
+      </span>
+      <button
+        type="button"
+        aria-label="Dismiss announcement"
+        onClick={()=>{
+          setDismissed(id);
+          try{localStorage.setItem('flixstar-dismissed-announcement',id);}catch{}
+        }}
+      >
+        <X size={15}/>
+      </button>
+    </div>
+  );
+}
+
+/*
+  ==========================================
+  ADMIN DASHBOARD  (/admin)
+  ==========================================
+*/
+function useIsAdmin(){
+  const sync=useSyncState();
+  const [isAdmin,setIsAdmin]=useState(null);
+  useEffect(()=>{
+    if(!sync.user){setIsAdmin(false);return;}
+    let alive=true;
+    checkIsAdmin().then(v=>{if(alive)setIsAdmin(v);});
+    return()=>{alive=false;};
+  },[sync.user?.id]);
+  return isAdmin;
+}
+
+function StatCard({label,value,hint}){
+  return (
+    <div className="admin-stat">
+      <span>{label}</span>
+      <b>{value}</b>
+      {hint && <small>{hint}</small>}
+    </div>
+  );
+}
+
+function AdminTitleList({title,items,nav,empty}){
+  return (
+    <section className="admin-panel">
+      <h2>{title}</h2>
+      {!items.length ? <p className="admin-muted">{empty}</p> : (
+        <ol className="admin-titles">
+          {items.map(({item,count})=>{
+            const type=item.media_type||item.type||'movie';
+            return (
+              <li key={`${type}-${item.id}`}>
+                <button type="button" onClick={()=>nav(`/${type}/${item.id}`)}>
+                  {item.poster_path
+                    ? <img src={IMG(item.poster_path,'w92')} alt="" loading="lazy"/>
+                    : <span className="admin-poster-empty"><Film size={16}/></span>}
+                  <span className="admin-title-name">
+                    {item.title||item.name||'Untitled'}
+                    <small>{type==='tv'?'TV':'Movie'}</small>
+                  </span>
+                  <b>{count}</b>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function AnnouncementEditor(){
+  const [form,setForm]=useState({enabled:false,text:'',link:'',linkText:'',tone:'info'});
+  const [status,setStatus]=useState('');
+
+  useEffect(()=>{
+    getSiteConfig('announcement').then(x=>{
+      if(x)setForm(f=>({...f,...x}));
+    });
+  },[]);
+
+  const set=patch=>setForm(f=>({...f,...patch}));
+
+  const save=async e=>{
+    e.preventDefault();
+    setStatus('Saving…');
+    try{
+      const {updatedAt,...value}=form;
+      await setSiteConfig('announcement',value);
+      window.dispatchEvent(new Event('flixstar-announcement'));
+      setStatus('Saved. Visitors will see it on their next page load.');
+    }catch(err){
+      setStatus(`Could not save: ${err.message}`);
+    }
+  };
+
+  return (
+    <section className="admin-panel">
+      <h2>Site announcement</h2>
+      <p className="admin-muted">A banner shown at the top of every page.</p>
+      <form className="admin-form" onSubmit={save}>
+        <label className="admin-check">
+          <SettingToggle label="Show announcement" on={form.enabled} onChange={v=>set({enabled:v})}/>
+          <span>{form.enabled?'Showing':'Hidden'}</span>
+        </label>
+        <textarea
+          rows={2}
+          maxLength={240}
+          placeholder="e.g. Server 2 is down for maintenance tonight."
+          value={form.text}
+          onChange={e=>set({text:e.target.value})}
+        />
+        <div className="admin-form-row">
+          <input placeholder="Link (optional) e.g. /movies or https://…" value={form.link||''} onChange={e=>set({link:e.target.value})}/>
+          <input placeholder="Link text" value={form.linkText||''} onChange={e=>set({linkText:e.target.value})}/>
+          <select className="settings-select" value={form.tone} onChange={e=>set({tone:e.target.value})}>
+            <option value="info">Info</option>
+            <option value="warning">Warning</option>
+          </select>
+        </div>
+        <div className="admin-form-row">
+          <button className="white-btn" type="submit">Save</button>
+          {status && <span className="admin-muted">{status}</span>}
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function ApiHealth(){
+  const [state,setState]=useState({status:'checking'});
+  const check=async()=>{
+    setState({status:'checking'});
+    const t=performance.now();
+    try{
+      const r=await fetch(`${API}/health`);
+      const ms=Math.round(performance.now()-t);
+      setState({status:r.ok?'up':'down',ms});
+    }catch{
+      setState({status:'down'});
+    }
+  };
+  useEffect(()=>{check();},[]);
+  const label={checking:'Checking…',up:`Online · ${state.ms} ms`,down:'Not responding'}[state.status];
+  return (
+    <div className="admin-stat">
+      <span>API server</span>
+      <b className={`admin-health ${state.status}`}><i/>{label}</b>
+      <small><button type="button" className="link-btn" onClick={check}>Check again</button></small>
+    </div>
+  );
+}
+
+function AdminPage({nav}){
+  const sync=useSyncState();
+  const isAdmin=useIsAdmin();
+  const [data,setData]=useState(null);
+  const [error,setError]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [q,setQ]=useState('');
+
+  const load=async()=>{
+    setLoading(true);setError('');
+    try{
+      const {users,rows}=await loadAdminData();
+      setData(computeStats(users,rows));
+    }catch(e){
+      setError(e.message||'Could not load dashboard data');
+    }finally{
+      setLoading(false);
+    }
+  };
+
+  useEffect(()=>{if(isAdmin)load();},[isAdmin]);
+
+  const gate=(titleText,body,action)=>(
+    <>
+      <SiteNav nav={nav}/>
+      <main className="settings-page">
+        <PageTitle title="Admin" subtitle="Flixstar dashboard"/>
+        <div className="settings-card"><div className="setting setting-stack"><div><b>{titleText}</b><p>{body}</p></div>{action}</div></div>
+      </main>
+    </>
+  );
+
+  if(!sync.configured)return gate('Sync not configured','Add the Supabase environment variables to enable accounts and the admin dashboard.');
+  if(!sync.user)return gate('Sign in required','Sign in with your admin email in Settings.',<button className="small-btn" onClick={()=>nav('/settings')}>Go to Settings</button>);
+  if(isAdmin===null)return <Loading/>;
+  if(!isAdmin)return gate('Not authorized',`${sync.user.email} is not an admin.`);
+
+  const fmt=ts=>ts?new Date(ts).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}):'—';
+  const users=(data?.perUser||[]).filter(u=>!q||u.email?.toLowerCase().includes(q.toLowerCase()));
+
+  return (
+    <>
+      <SiteNav nav={nav}/>
+      <main className="admin-page">
+        <div className="admin-head">
+          <PageTitle title="Admin dashboard" subtitle={`Signed in as ${sync.user.email}`}/>
+          <button className="small-btn" disabled={loading} onClick={load}><RotateCcw size={14}/> {loading?'Refreshing…':'Refresh'}</button>
+        </div>
+
+        {error && <div className="watch-error">{error}</div>}
+
+        <div className="admin-stats">
+          <StatCard label="Users" value={data?.totals.users??'—'} hint={data?`+${data.totals.new7} this week`:''}/>
+          <StatCard label="Active (7 days)" value={data?.totals.active7??'—'}/>
+          <StatCard label="Saved titles" value={data?.totals.saved??'—'} hint="across all lists"/>
+          <StatCard label="In progress" value={data?.totals.inProgress??'—'} hint="Continue Watching"/>
+          <ApiHealth/>
+        </div>
+
+        <div className="admin-grid">
+          <AdminTitleList title="Most saved" items={data?.topSaved||[]} nav={nav} empty="No saved titles yet."/>
+          <AdminTitleList title="Most watched right now" items={data?.topWatching||[]} nav={nav} empty="Nobody is mid-way through anything yet."/>
+        </div>
+
+        <AnnouncementEditor/>
+
+        <section className="admin-panel">
+          <div className="admin-panel-head">
+            <h2>Users</h2>
+            <input className="admin-search" placeholder="Search email" value={q} onChange={e=>setQ(e.target.value)}/>
+          </div>
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr><th>Email</th><th>Joined</th><th>Last active</th><th>Lists</th><th>Saved</th><th>In progress</th></tr>
+              </thead>
+              <tbody>
+                {users.map(u=>(
+                  <tr key={u.id}>
+                    <td>{u.email}</td>
+                    <td>{fmt(u.created_at)}</td>
+                    <td>{u.lastActive?timeAgo(u.lastActive):'—'}</td>
+                    <td>{u.listCount}</td>
+                    <td>{u.savedCount}</td>
+                    <td>{u.inProgress}</td>
+                  </tr>
+                ))}
+                {!users.length && (
+                  <tr><td colSpan={6} className="admin-muted">{loading?'Loading…':'No users found.'}</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </>
+  );
+}
+
+function AdminSettingLinkCard({nav}){
+  const isAdmin=useIsAdmin();
+  if(!isAdmin)return null;
+  return (
+    <>
+    <h3 className="settings-group-title">Admin</h3>
+    <div className="settings-card">
+    <div className="setting">
+      <div>
+        <b>Admin dashboard</b>
+        <p>Users, popular titles, API status and the site announcement</p>
+      </div>
+      <button className="small-btn" onClick={()=>nav('/admin')}>Open</button>
+    </div>
+    </div>
+    </>
+  );
 }
 
 function Watch({titleId,type,nav}) {
