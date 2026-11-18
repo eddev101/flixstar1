@@ -4451,3 +4451,182 @@ body,
 }
 
  
+
+/* =========================================
+   SETTINGS (account, sync, preferences)
+========================================= */
+.settings-page{max-width:900px}
+.settings-group-title{margin:26px 0 10px;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#8d9792;font-weight:700}
+.settings-card{max-width:none}
+.setting{gap:18px;padding:14px 0}
+.setting > div:first-child{min-width:0}
+.setting-stack{flex-direction:column;align-items:stretch}
+.setting-actions{display:flex;gap:8px;flex-shrink:0}
+.small-btn{display:inline-flex;align-items:center;gap:6px;color:#e7ece9;font-size:12px;cursor:pointer;white-space:nowrap}
+.small-btn:disabled{opacity:.45;cursor:not-allowed}
+.small-btn.danger{border-color:#5a2a2a;color:#ffb4b4}
+button.toggle{border:0;padding:0;flex-shrink:0;cursor:pointer;transition:background .15s}
+.toggle:after{transition:left .15s}
+.settings-select{height:36px;background:#18211c;border:1px solid #334039;border-radius:18px;padding:0 12px;color:#e7ece9;font-size:12px;max-width:180px}
+.login-form{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.login-form input{flex:1 1 220px;height:46px;border-radius:24px;border:1px solid #2c3832;background:#0b110e;color:#fff;padding:0 18px;font-size:14px;outline:none}
+.login-form input:focus{border-color:#9edb64}
+.login-form .white-btn{height:46px;padding:0 22px}
+.login-form .white-btn:disabled{opacity:.6}
+.link-btn{border:0;background:none;color:#9edb64;font-size:12px;padding:6px 4px;cursor:pointer}
+.setting-note{color:#b9c4be !important;font-size:12px !important}
+.setting-note.error{color:#ff9d9d !important}
+.sync-status{display:flex;align-items:center;gap:7px}
+.sync-status i{width:8px;height:8px;border-radius:50%;background:#7c8580;display:inline-block}
+.sync-status.synced i{background:#7ddc5a}
+.sync-status.syncing i{background:#f2c94c;animation:pulse 1s infinite}
+.sync-status.error i{background:#ff6b6b}
+@keyframes pulse{50%{opacity:.35}}
+@media(max-width:600px){
+  .setting{flex-wrap:wrap}
+  .setting-actions{width:100%}
+}
+.ratings-source{display:block;margin-top:4px;font-size:11px;color:#8f9994}
+.ratings-source b{color:#f5c518}
+.ratings-source a{color:#cfd8d3}
+
+/* =========================================
+   PROFILE PHOTO CROPPING
+   TMDB profile photos are tall 2:3 portraits. Centre-cropping them
+   into a circle cuts through the forehead/face, so anchor the crop
+   near the top where faces sit.
+========================================= */
+.cast-photo,
+.person-photo,
+.search-person-image{
+  flex-shrink:0;
+  aspect-ratio:1/1;
+}
+.cast-photo img,
+.person-photo img,
+.search-person-image img{
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  object-position:50% 15%;
+}
+
+/* =========================================
+   CAST SCROLL — arrows on laptop/desktop
+   Touch devices keep native swipe scrolling (unchanged).
+========================================= */
+.cast-scroll-wrap{position:relative}
+.cast-scroll{scroll-behavior:smooth;-webkit-overflow-scrolling:touch}
+.cast-arrow{display:none}
+
+@media (hover:hover) and (pointer:fine) and (min-width:768px){
+  .cast-arrow{
+    display:grid;
+    place-items:center;
+    position:absolute;
+    top:58px;            /* centred on the 138px photo row */
+    transform:translateY(-50%);
+    z-index:3;
+    width:44px;
+    height:44px;
+    border-radius:50%;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(12,18,15,.82);
+    backdrop-filter:blur(10px);
+    color:#fff;
+    cursor:pointer;
+    box-shadow:0 6px 20px rgba(0,0,0,.45);
+    transition:opacity .2s ease,transform .2s ease,background .2s ease;
+  }
+  .cast-arrow:hover{background:rgba(30,42,36,.95);transform:translateY(-50%) scale(1.06)}
+  .cast-arrow.left{left:-8px}
+  .cast-arrow.right{right:-8px}
+  .cast-arrow.hidden{opacity:0;pointer-events:none}
+
+  /* soft edge fade so cards slide under the arrows */
+  .cast-scroll-wrap::before,
+  .cast-scroll-wrap::after{
+    content:'';
+    position:absolute;
+    top:0;
+    bottom:18px;
+    width:60px;
+    z-index:2;
+    pointer-events:none;
+    transition:opacity .2s ease;
+  }
+  .cast-scroll-wrap::before{left:0;background:linear-gradient(90deg,#050807,transparent)}
+  .cast-scroll-wrap::after{right:0;background:linear-gradient(270deg,#050807,transparent)}
+  .cast-scroll-wrap:has(.cast-arrow.left.hidden)::before{opacity:0}
+  .cast-scroll-wrap:has(.cast-arrow.right.hidden)::after{opacity:0}
+}
+
+/* RESUME BANNER (watch page) */
+.resume-banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 4.1% 0;padding:12px 16px;border-radius:12px;background:#101713;border:1px solid #223029;color:#d6ddd9;font-size:13px}
+.resume-banner b{color:#fff}
+.resume-banner span{flex:1 1 240px}
+.resume-banner button{border:0;border-radius:18px;padding:8px 14px;background:#fff;color:#111;font-size:12px;font-weight:700;cursor:pointer}
+.resume-banner button.ghost{background:#1b2420;color:#dce3df;border:1px solid #2d3833}
+
+/* =========================================
+   SITE ANNOUNCEMENT BANNER
+========================================= */
+.site-announcement{position:relative;z-index:60;display:flex;align-items:center;gap:10px;padding:9px 4.1%;background:#13241b;border-bottom:1px solid #22392c;color:#d9eadf;font-size:13px}
+.site-announcement.warning{background:#2a2111;border-color:#4a3a18;color:#f3e2bd}
+.site-announcement span{flex:1;min-width:0}
+.site-announcement a{color:#9edb64;font-weight:700;text-decoration:none;margin-left:4px}
+.site-announcement.warning a{color:#f5c518}
+.site-announcement button{border:0;background:none;color:inherit;opacity:.7;display:grid;place-items:center;padding:4px;cursor:pointer}
+.site-announcement button:hover{opacity:1}
+
+/* =========================================
+   ADMIN DASHBOARD
+========================================= */
+.admin-page{padding:0 4.1% 90px;max-width:1400px}
+.admin-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.admin-head .page-title{padding-bottom:20px}
+.admin-head .small-btn{margin-bottom:26px}
+.admin-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:22px}
+.admin-stat{background:#101713;border:1px solid #202923;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.admin-stat span{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7f8a84}
+.admin-stat b{font-size:28px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
+.admin-stat small{font-size:11px;color:#8d9792}
+.admin-stat small .link-btn{padding:0}
+.admin-health{display:flex;align-items:center;gap:8px;font-size:15px !important;font-weight:700 !important;margin-top:6px}
+.admin-health i{width:9px;height:9px;border-radius:50%;background:#7c8580}
+.admin-health.up i{background:#7ddc5a}
+.admin-health.down i{background:#ff6b6b}
+.admin-health.checking i{background:#f2c94c;animation:pulse 1s infinite}
+.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.admin-panel{background:#101713;border:1px solid #202923;border-radius:15px;padding:18px 20px;margin-bottom:16px;min-width:0}
+.admin-panel h2{font-size:16px;margin:0 0 12px}
+.admin-panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.admin-panel-head h2{margin:0}
+.admin-muted{color:#7f8a84;font-size:12px;margin:0}
+.admin-titles{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.admin-titles button{width:100%;display:flex;align-items:center;gap:12px;border:0;background:none;padding:6px;border-radius:10px;text-align:left;color:inherit;cursor:pointer}
+.admin-titles button:hover{background:#18211c}
+.admin-titles img,.admin-poster-empty{width:34px;height:51px;border-radius:5px;object-fit:cover;background:#18201b;flex-shrink:0;display:grid;place-items:center;color:#55605a}
+.admin-title-name{flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.admin-title-name small{display:block;color:#7f8a84;font-size:11px;margin-top:2px}
+.admin-titles b{font-variant-numeric:tabular-nums;font-size:14px;color:#9edb64}
+.admin-form{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.admin-form textarea,.admin-form input,.admin-search{background:#0b110e;border:1px solid #2c3832;border-radius:12px;color:#fff;padding:11px 14px;font:inherit;font-size:13px;outline:none;resize:vertical}
+.admin-form textarea:focus,.admin-form input:focus,.admin-search:focus{border-color:#9edb64}
+.admin-form-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.admin-form-row input{flex:1 1 200px}
+.admin-form .white-btn{height:42px;padding:0 22px}
+.admin-check{display:flex;align-items:center;gap:10px;font-size:13px;color:#c9d2cd}
+.admin-search{width:min(260px,100%);border-radius:20px;padding:8px 14px}
+.admin-table-wrap{overflow-x:auto}
+.admin-table{width:100%;border-collapse:collapse;font-size:13px;min-width:620px}
+.admin-table th{text-align:left;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:#7f8a84;font-weight:600;padding:8px 10px;border-bottom:1px solid #222c26}
+.admin-table td{padding:10px;border-bottom:1px solid #18201b;color:#d6ddd9;font-variant-numeric:tabular-nums}
+.admin-table tr:last-child td{border-bottom:0}
+@media(max-width:1100px){.admin-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:750px){
+  .admin-page{padding-left:7%;padding-right:7%}
+  .admin-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .admin-grid{grid-template-columns:1fr}
+}
