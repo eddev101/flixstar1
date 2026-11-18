@@ -4825,6 +4825,22 @@ function AccountSettings(){
   const [err,setErr]=useState('');
   const [,tick]=useState(0);
 
+  // A failed magic link lands here with ?error=…&error_description=… (or in
+  // the #hash). Show a friendly message and clean the address bar.
+  useEffect(()=>{
+    const params=new URLSearchParams(
+      (location.hash||'').replace(/^#/,'')+'&'+location.search.replace(/^\?/,'')
+    );
+    const code=params.get('error_code')||params.get('error');
+    if(!code)return;
+    setErr(
+      code==='otp_expired'
+        ? 'That sign-in link has expired or was already used. Enter your email to get a new one, then type the 6-digit code from the email (it works more reliably than the link).'
+        : `Sign-in failed: ${params.get('error_description')||code}`
+    );
+    history.replaceState({},'',location.pathname);
+  },[]);
+
   useEffect(()=>{
     const t=setInterval(()=>tick(x=>x+1),30000);
     return()=>clearInterval(t);
