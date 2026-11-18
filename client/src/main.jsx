@@ -5187,12 +5187,23 @@ function SettingsPage({nav}){
   those we pass the saved position. Add more hosts here as needed.
   ==========================================
 */
+// Listed in order of preference for the "Resume on …" buttons.
 const RESUME_PARAMS=[
-  {match:/(^|\.)videasy\.(net|to)$/i,param:'progress'},
-  {match:/(^|\.)vidplus\.to$/i,param:'progress'},
   {match:/(^|\.)vidlink\.pro$/i,param:'startAt'},
-  {match:/(^|\.)vidfast\.(pro|net|vc)$/i,param:'startAt'}
+  {match:/(^|\.)vidfast\.(pro|net|vc)$/i,param:'startAt'},
+  {match:/(^|\.)videasy\.(net|to)$/i,param:'progress'},
+  {match:/(^|\.)vidplus\.to$/i,param:'progress'}
 ];
+
+function resumeRank(url){
+  try{
+    const host=new URL(url).hostname;
+    const i=RESUME_PARAMS.findIndex(x=>x.match.test(host));
+    return i<0?Infinity:i;
+  }catch{
+    return Infinity;
+  }
+}
 
 function resumeParamFor(url){
   try{
@@ -6023,9 +6034,11 @@ useEffect(()=>{
 
       {resumeAt && activeProvider && (() => {
         const supported=Boolean(resumeParamFor(activeProvider.url));
-        const alt=!supported
-          ? playback?.providers?.find(p=>resumeParamFor(p.url))
-          : null;
+        const alts=!supported
+          ? (playback?.providers||[])
+              .filter(p=>resumeParamFor(p.url))
+              .sort((a,b)=>resumeRank(a.url)-resumeRank(b.url))
+          : [];
 
         return (
           <div className="resume-banner">
@@ -6033,13 +6046,13 @@ useEffect(()=>{
             <span>
               {supported
                 ? <>Resuming from <b>{formatTime(resumeAt)}</b></>
-                : <>You stopped at <b>{formatTime(resumeAt)}</b>. {activeProvider.name} can't jump there automatically. Skip ahead in the player{alt?' or switch server':''}.</>}
+                : <>You stopped at <b>{formatTime(resumeAt)}</b>. {activeProvider.name} can't jump there automatically. Skip ahead in the player{alts.length?' or switch server':''}.</>}
             </span>
-            {alt && (
-              <button type="button" onClick={()=>setActiveProvider(alt)}>
+            {alts.map(alt=>(
+              <button key={alt.id} type="button" onClick={()=>setActiveProvider(alt)}>
                 Resume on {alt.name}
               </button>
-            )}
+            ))}
             <button type="button" className="ghost" onClick={()=>setResumeAt(null)}>
               Start over
             </button>
