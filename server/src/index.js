@@ -677,6 +677,138 @@ app.get('/api/tv/:id',safe(async(req,res)=>{
   });
 }));
 app.get('/api/tv/:id/season/:season',safe(async(req,res)=>res.json(await tmdb(`/tv/${req.params.id}/season/${req.params.season}`))));
+// ---------------------------------------------------------
+// IMDb EPISODE RATINGS
+// TMDB only exposes its own user scores, but it gives us the
+// show's IMDb id. We use that id to look up real IMDb ratings:
+//   1. OMDb (set OMDB_API_KEY — free key at omdbapi.com/apikey.aspx)
+//   2. imdbapi.dev (free, no key) as a fallback
+// Results are cached in memory for 12 hours.
+// ---------------------------------------------------------
+
+const imdbRatingsCache=new Map();
+const IMDB_CACHE_MS=12*60*60*1000;
+
+async function fetchJson(url,timeoutMs=10000){
+  const ctrl=new AbortController();
+  const t=setTimeout(()=>ctrl.abort(),timeoutMs);
+  try{
+    const r=await fetch(url,{signal:ctrl.signal,headers:{accept:'application/json'}});
+    if(!r.ok)throw new Error(`${r.status}`);
+    return await r.json();
+  }finally{
+    clearTimeout(t);
+  }
+}
+
+const toRating=v=>{
+  const n=Number.parseFloat(v);
+  return Number.isFinite(n)&&n>0?n:null;
+};
+
+async function omdbSeason(imdbId,season){
+  const key=process.env.OMDB_API_KEY;
+  if(!key)return null;
+  const u=new URL('https://www.omdbapi.com/');
+  u.searchParams.set('apikey',key);
+  u.searchParams.set('i',imdbId);
+  u.searchParams.set('Season',String(season));
+  const data=await fetchJson(u);
+  if(data?.Response==='False')return null;
+  return (data?.Episodes||[])
+    .map(e=>({
+      episode_number:Number.parseInt(e.Episode,10),
+      name:e.Title,
+      rating:toRating(e.imdbRating),
+      imdb_id:e.imdbID||null
+    }))
+    .filter(e=>Number.isInteger(e.episode_number));
+}
+
+async function imdbApiDevSeason(imdbId,season){
+  const out=[];
+  let pageToken='';
+  for(let page=0;page<6;page++){
+    const u=new URL(`https://api.imdbapi.dev/titles/${imdbId}/episodes`);
+    u.searchParams.set('season',String(season));
+    u.searchParams.set('pageSize','50');
+    if(pageToken)u.searchParams.set('pageToken',pageToken);
+    const data=await fetchJson(u);
+    (data?.episodes||[]).forEach(e=>{
+      out.push({
+        episode_number:Number(e.episodeNumber),
+        name:e.title,
+        rating:toRating(e.rating?.aggregateRating),
+        votes:e.rating?.voteCount||null,
+        imdb_id:e.id||null
+      });
+    });
+    pageToken=data?.nextPageToken||'';
+    if(!pageToken)break;
+  }
+  return out.filter(e=>Number.isInteger(e.episode_number)&&e.episode_number>0);
+}
+
+async function imdbSeason(imdbId,season){
+  try{
+    const omdb=await omdbSeason(imdbId,season);
+    if(omdb?.some(e=>e.rating))return {source:'omdb',episodes:omdb};
+  }catch(e){
+    console.warn('OMDb season failed',imdbId,season,e.message);
+  }
+  try{
+    const dev=await imdbApiDevSeason(imdbId,season);
+    if(dev.length)return {source:'imdbapi.dev',episodes:dev};
+  }catch(e){
+    console.warn('imdbapi.dev season failed',imdbId,season,e.message);
+  }
+  return {source:null,episodes:[]};
+}
+
+app.get('/api/tv/:id/imdb-ratings',safe(async(req,res)=>{
+  const id=req.params.id;
+  const cached=imdbRatingsCache.get(id);
+  if(cached&&Date.now()-cached.at<IMDB_CACHE_MS){
+    return res.json(cached.data);
+  }
+
+  const tv=await tmdb(`/tv/${id}`,{append_to_response:'external_ids'});
+  const imdbId=tv.external_ids?.imdb_id||null;
+
+  if(!imdbId){
+    return res.json({imdbId:null,seasons:{},sources:[]});
+  }
+
+  const seasonNumbers=(tv.seasons||[])
+    .map(s=>s.season_number)
+    .filter(n=>Number.isInteger(n)&&n>0);
+
+  if(!seasonNumbers.length){
+    for(let i=1;i<=(tv.number_of_seasons||1);i++)seasonNumbers.push(i);
+  }
+
+  // Fetch a few seasons at a time to stay polite to the upstream APIs
+  const seasons={};
+  const sources=new Set();
+  for(let i=0;i<seasonNumbers.length;i+=4){
+    const chunk=seasonNumbers.slice(i,i+4);
+    const results=await Promise.all(chunk.map(n=>imdbSeason(imdbId,n)));
+    results.forEach((r,idx)=>{
+      seasons[chunk[idx]]=r.episodes;
+      if(r.source)sources.add(r.source);
+    });
+  }
+
+  const data={imdbId,seasons,sources:[...sources]};
+
+  // Only cache when we actually got ratings, so transient failures retry
+  if(sources.size){
+    imdbRatingsCache.set(id,{at:Date.now(),data});
+  }
+
+  res.json(data);
+}));
+
 app.get('/api/person/:id',safe(async(req,res)=>res.json(await tmdb(`/person/${req.params.id}`,{append_to_response:'combined_credits,images'}))));
 // ---------------------------------------------------------
 // PLAYBACK PROVIDERS

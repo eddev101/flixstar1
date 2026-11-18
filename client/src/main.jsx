@@ -2,6 +2,9 @@ import React,{useEffect,useMemo,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Search,Settings,Home as HomeIcon,Plus,Info,Play,Copy,ChevronLeft,ChevronRight,Heart,Download,Eye,Clock3,CalendarDays,SlidersHorizontal,ArrowLeft,Share2,Check,UserRound,Bell,Film,MonitorPlay,Menu,X,ExternalLink,Volume2,Maximize,RotateCcw,Dices,ChevronDown,List} from 'lucide-react';
 import './styles.css';
+import {startSync,subscribeSync,getSyncState,syncNow,sendLoginCode,verifyLoginCode,signOut,syncConfigured,readSettings,writeSettings} from './sync.js';
+
+startSync();
 
 const API=import.meta.env.VITE_API_URL||(import.meta.env.DEV?'http://localhost:4000/api':'https://flixstar-api.onrender.com/api');
 const IMG=(p,size='w500')=>p?`https://image.tmdb.org/t/p/${size}${p}`:'';
@@ -73,11 +76,26 @@ const [lists,setLists]=useState(()=>{
 });
 
 useEffect(()=>{
-  localStorage.setItem(
-    'flixstar-lists',
-    JSON.stringify(lists)
-  );
+  const next=JSON.stringify(lists);
+  // Skip no-op writes (e.g. right after cloud data was applied)
+  if(localStorage.getItem('flixstar-lists')!==next){
+    localStorage.setItem('flixstar-lists',next);
+  }
 },[lists]);
+
+// Reload lists when another device's data arrives via cloud sync
+useEffect(()=>{
+  const reload=()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem('flixstar-lists')||'[]');
+      setLists(Array.isArray(saved)?saved:[]);
+    }catch{
+      setLists([]);
+    }
+  };
+  window.addEventListener('flixstar-sync-applied',reload);
+  return()=>window.removeEventListener('flixstar-sync-applied',reload);
+},[]);
 
 const [listToast, setListToast] = useState('');
   
@@ -2466,7 +2484,9 @@ const searchBg=
 
                             <img
                               src={IMG(person.profile_path,'w185')}
+                              srcSet={`${IMG(person.profile_path,'w185')} 1x, ${IMG(person.profile_path,'h632')} 2x`}
                               alt={person.name}
+                              loading="lazy"
                             />
 
                           </div>
@@ -3345,6 +3365,8 @@ function Episodes({d,nav}){
 function EpisodeRatings({d,onClose}){
 
   const [seasons,setSeasons]=useState({});
+  const [imdb,setImdb]=useState({});
+  const [imdbId,setImdbId]=useState(null);
   const [loading,setLoading]=useState(true);
 
   useEffect(()=>{
@@ -3357,6 +3379,10 @@ function EpisodeRatings({d,onClose}){
       try{
 
         const total=d.number_of_seasons||1;
+
+        // IMDb ratings (via our API) load alongside TMDB data
+        const imdbRequest=apiFetch(`/tv/${d.id}/imdb-ratings`)
+          .catch(()=>null);
 
         const results=await Promise.all(
           Array.from(
@@ -3383,6 +3409,21 @@ function EpisodeRatings({d,onClose}){
         });
 
         setSeasons(mapped);
+
+        const imdbData=await imdbRequest;
+
+        if(cancelled)return;
+
+        if(imdbData?.seasons){
+          const byKey={};
+          Object.entries(imdbData.seasons).forEach(([sn,eps])=>{
+            (eps||[]).forEach(e=>{
+              if(e.rating)byKey[`${sn}-${e.episode_number}`]=e;
+            });
+          });
+          setImdb(byKey);
+          setImdbId(imdbData.imdbId||null);
+        }
 
       }finally{
 
@@ -3437,10 +3478,23 @@ function EpisodeRatings({d,onClose}){
   };
 
 
-  const seasonAverage=episodes=>{
+  // Prefer IMDb; fall back to TMDB's score when IMDb has none
+  const ratingFor=(seasonNumber,episode)=>{
+    if(!episode)return {rating:null,source:null};
+    const fromImdb=imdb[`${seasonNumber}-${episode.episode_number}`];
+    if(fromImdb?.rating)return {rating:fromImdb.rating,source:'IMDb',votes:fromImdb.votes};
+    const tmdb=Number(episode.vote_average);
+    return Number.isFinite(tmdb)&&tmdb>0
+      ? {rating:tmdb,source:'TMDB'}
+      : {rating:null,source:null};
+  };
+
+  const imdbCount=Object.keys(imdb).length;
+
+  const seasonAverage=(seasonNumber,episodes)=>{
 
     const rated=episodes
-      .map(e=>Number(e.vote_average))
+      .map(e=>ratingFor(seasonNumber,e).rating)
       .filter(x=>Number.isFinite(x)&&x>0);
 
     if(!rated.length){
@@ -3471,6 +3525,13 @@ function EpisodeRatings({d,onClose}){
 
             <p>
               {d.name||d.title}
+              {!loading && (
+                <span className="ratings-source">
+                  {imdbCount
+                    ? <>Ratings from <b>IMDb</b>{imdbId && <> · <a href={`https://www.imdb.com/title/${imdbId}/episodes`} target="_blank" rel="noopener noreferrer">view on IMDb</a></>}</>
+                    : 'IMDb ratings unavailable · showing TMDB scores'}
+                </span>
+              )}
             </p>
 
             <div className="ratings-legend">
@@ -3573,9 +3634,10 @@ function EpisodeRatings({d,onClose}){
                               episodeNumber
                           );
 
-                        const rating=episode
-                          ? Number(episode.vote_average)
-                          : null;
+                        const {rating,source,votes}=ratingFor(
+                          seasonNumber,
+                          episode
+                        );
 
                         return(
                           <div
@@ -3583,7 +3645,7 @@ function EpisodeRatings({d,onClose}){
                             className={ratingClass(rating)}
                             title={
                               episode
-                                ? `${episode.name||`Episode ${episodeNumber}`} · ${rating?.toFixed(1)||'Not rated'}`
+                                ? `${episode.name||`Episode ${episodeNumber}`} · ${rating?`${rating.toFixed(1)} (${source}${votes?`, ${Number(votes).toLocaleString()} votes`:''})`:'Not rated'}`
                                 : 'Not rated'
                             }
                           >
@@ -3610,6 +3672,7 @@ function EpisodeRatings({d,onClose}){
               {Object.keys(seasons).map(seasonNumber=>{
 
                 const avg=seasonAverage(
+                  seasonNumber,
                   seasons[seasonNumber]||[]
                 );
 
@@ -3641,6 +3704,35 @@ function EpisodeRatings({d,onClose}){
 
 
 function CastRow({cast,nav}){
+  const scrollRef=React.useRef(null);
+  const [canLeft,setCanLeft]=useState(false);
+  const [canRight,setCanRight]=useState(false);
+
+  const updateArrows=React.useCallback(()=>{
+    const el=scrollRef.current;
+    if(!el)return;
+    setCanLeft(el.scrollLeft>4);
+    setCanRight(el.scrollLeft+el.clientWidth<el.scrollWidth-4);
+  },[]);
+
+  useEffect(()=>{
+    const el=scrollRef.current;
+    if(!el)return;
+    updateArrows();
+    el.addEventListener('scroll',updateArrows,{passive:true});
+    window.addEventListener('resize',updateArrows);
+    return()=>{
+      el.removeEventListener('scroll',updateArrows);
+      window.removeEventListener('resize',updateArrows);
+    };
+  },[cast,updateArrows]);
+
+  const scrollByPage=dir=>{
+    const el=scrollRef.current;
+    if(!el)return;
+    el.scrollBy({left:dir*Math.max(240,el.clientWidth*0.8),behavior:'smooth'});
+  };
+
   if(!cast?.length)return null;
 
   return (
@@ -3650,32 +3742,59 @@ function CastRow({cast,nav}){
         <h2>Cast</h2>
       </div>
 
-      <div className="cast-scroll">
-        {cast.map(c=>(
-          <button
-            className="cast-card"
-            key={c.id}
-            onClick={()=>nav(`/person/${c.id}`)}
-          >
+      <div className="cast-scroll-wrap">
 
-            <div className="cast-photo">
-              {c.profile_path
-                ? (
-                  <img
-                    src={IMG(c.profile_path,'w185')}
-                    alt={c.name}
-                  />
-                )
-                : <UserRound size={40}/>
-              }
-            </div>
+        <button
+          type="button"
+          className={`cast-arrow left ${canLeft?'':'hidden'}`}
+          aria-label="Scroll cast left"
+          tabIndex={canLeft?0:-1}
+          onClick={()=>scrollByPage(-1)}
+        >
+          <ChevronLeft size={22}/>
+        </button>
 
-            <b>{c.name}</b>
+        <div className="cast-scroll" ref={scrollRef}>
+          {cast.map(c=>(
+            <button
+              className="cast-card"
+              key={c.id}
+              onClick={()=>nav(`/person/${c.id}`)}
+            >
 
-            <span>{c.character||'—'}</span>
+              <div className="cast-photo">
+                {c.profile_path
+                  ? (
+                    <img
+                      src={IMG(c.profile_path,'w185')}
+                      srcSet={`${IMG(c.profile_path,'w185')} 1x, ${IMG(c.profile_path,'h632')} 2x`}
+                      alt={c.name}
+                      loading="lazy"
+                      draggable={false}
+                    />
+                  )
+                  : <UserRound size={40}/>
+                }
+              </div>
 
-          </button>
-        ))}
+              <b>{c.name}</b>
+
+              <span>{c.character||'—'}</span>
+
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className={`cast-arrow right ${canRight?'':'hidden'}`}
+          aria-label="Scroll cast right"
+          tabIndex={canRight?0:-1}
+          onClick={()=>scrollByPage(1)}
+        >
+          <ChevronRight size={22}/>
+        </button>
+
       </div>
 
     </section>
@@ -4036,7 +4155,7 @@ function Person({id,nav}){
             {d.profile_path ? (
 
               <img
-                src={IMG(d.profile_path,'w500')}
+                src={IMG(d.profile_path,'h632')}
                 alt={d.name}
               />
 
@@ -4657,7 +4776,390 @@ const bg=backgrounds[bgIndex]||'';
     </main>
   );
 }
-function SettingsPage({nav}){return <><SiteNav nav={nav}/><main className="settings-page"><PageTitle title="Settings" subtitle="Manage your Flixstar preferences"/><div className="settings-card"><div className="setting"><div><b>Account</b><p>Guest account</p></div><button className="small-btn">Sign in</button></div><div className="setting"><div><b>Appearance</b><p>Dark mode</p></div><span className="toggle on"></span></div><div className="setting"><div><b>Autoplay</b><p>Play the next episode automatically</p></div><span className="toggle"></span></div><div className="setting"><div><b>Playback quality</b><p>Auto</p></div><button className="small-btn">Auto</button></div></div></main></>}
+const FALLBACK_SERVERS=['frameXTV','Videasy','Vidsrc','2Embed','SuperEmbed','Vidplus','StreamIMDB'];
+
+function useSyncState(){
+  const [s,setS]=useState(()=>getSyncState());
+  useEffect(()=>subscribeSync(setS),[]);
+  return s;
+}
+
+function timeAgo(ts){
+  if(!ts)return 'never';
+  const diff=Math.max(0,Date.now()-ts);
+  if(diff<60000)return 'just now';
+  if(diff<3600000)return `${Math.floor(diff/60000)} min ago`;
+  if(diff<86400000)return `${Math.floor(diff/3600000)} h ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function SettingToggle({on,onChange,label}){
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      className={`toggle ${on?'on':''}`}
+      onClick={()=>onChange(!on)}
+    />
+  );
+}
+
+function AccountSettings(){
+  const sync=useSyncState();
+  const [email,setEmail]=useState('');
+  const [code,setCode]=useState('');
+  const [step,setStep]=useState('email');
+  const [busy,setBusy]=useState(false);
+  const [msg,setMsg]=useState('');
+  const [err,setErr]=useState('');
+  const [,tick]=useState(0);
+
+  useEffect(()=>{
+    const t=setInterval(()=>tick(x=>x+1),30000);
+    return()=>clearInterval(t);
+  },[]);
+
+  if(!sync.configured){
+    return (
+      <div className="setting setting-stack">
+        <div>
+          <b>Account &amp; sync</b>
+          <p>Cloud sync isn't set up on this site yet. Your lists and progress are saved on this device only.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const run=async fn=>{
+    setBusy(true);setErr('');setMsg('');
+    try{await fn();}catch(e){setErr(e?.message||'Something went wrong');}
+    finally{setBusy(false);}
+  };
+
+  if(sync.user){
+    const statusText={
+      syncing:'Syncing…',
+      synced:`Synced ${timeAgo(sync.lastSyncedAt)}`,
+      error:`Sync error: ${sync.error}`,
+      idle:'Waiting to sync'
+    }[sync.status]||'';
+
+    return (
+      <>
+        <div className="setting">
+          <div>
+            <b>Signed in</b>
+            <p>{sync.user.email}</p>
+          </div>
+          <button className="small-btn" disabled={busy} onClick={()=>run(()=>signOut())}>Sign out</button>
+        </div>
+        <div className="setting">
+          <div>
+            <b>Sync across devices</b>
+            <p className={`sync-status ${sync.status}`}><i/>{statusText}</p>
+            <p>Lists, Continue Watching, watched titles and settings sync to every device you sign in on.</p>
+          </div>
+          <button className="small-btn" disabled={sync.status==='syncing'} onClick={()=>syncNow()}>
+            <RotateCcw size={14}/> Sync now
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="setting setting-stack">
+      <div>
+        <b>Sign in to sync your devices</b>
+        <p>
+          No password needed. Enter your email and we'll send you a 6-digit code.
+          Everything saved on this device is kept and merged into your account.
+        </p>
+      </div>
+
+      {step==='email' ? (
+        <form
+          className="login-form"
+          onSubmit={e=>{
+            e.preventDefault();
+            const clean=email.trim();
+            if(!clean)return;
+            run(async()=>{
+              await sendLoginCode(clean);
+              setStep('code');
+              setMsg(`We sent a code to ${clean}. You can also just tap the link in the email.`);
+            });
+          }}
+        >
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={e=>setEmail(e.target.value)}
+          />
+          <button className="white-btn" disabled={busy} type="submit">
+            {busy?'Sending…':'Send code'}
+          </button>
+        </form>
+      ) : (
+        <form
+          className="login-form"
+          onSubmit={e=>{
+            e.preventDefault();
+            run(()=>verifyLoginCode(email.trim(),code));
+          }}
+        >
+          <input
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="6-digit code"
+            maxLength={10}
+            value={code}
+            onChange={e=>setCode(e.target.value.replace(/\s/g,''))}
+          />
+          <button className="white-btn" disabled={busy||code.length<6} type="submit">
+            {busy?'Checking…':'Sign in'}
+          </button>
+          <button type="button" className="link-btn" onClick={()=>{setStep('email');setCode('');setMsg('');}}>
+            Use a different email
+          </button>
+        </form>
+      )}
+
+      {msg && <p className="setting-note">{msg}</p>}
+      {err && <p className="setting-note error">{err}</p>}
+    </div>
+  );
+}
+
+function SettingsPage({nav}){
+  const [settings,setSettings]=useState(()=>readSettings());
+  const [servers,setServers]=useState(FALLBACK_SERVERS);
+  const [progressCount,setProgressCount]=useState(0);
+  const [listCount,setListCount]=useState(0);
+  const [note,setNote]=useState('');
+
+  const refreshCounts=()=>{
+    setProgressCount(readWatchProgress().length);
+    try{
+      const l=JSON.parse(localStorage.getItem('flixstar-lists')||'[]');
+      setListCount(Array.isArray(l)?l.reduce((n,x)=>n+(x.items?.length||0),0):0);
+    }catch{setListCount(0);}
+  };
+
+  useEffect(()=>{
+    refreshCounts();
+    const onSync=()=>{setSettings(readSettings());refreshCounts();};
+    window.addEventListener('flixstar-sync-applied',onSync);
+    window.addEventListener('flixstar-watch-progress',onSync);
+    return()=>{
+      window.removeEventListener('flixstar-sync-applied',onSync);
+      window.removeEventListener('flixstar-watch-progress',onSync);
+    };
+  },[]);
+
+  useEffect(()=>{
+    apiFetch('/playback/movie/550')
+      .then(x=>{
+        const names=(x?.providers||[]).map(p=>p.name);
+        if(names.length)setServers(names);
+      })
+      .catch(()=>{});
+  },[]);
+
+  const update=patch=>setSettings(writeSettings(patch));
+
+  const exportData=()=>{
+    const data={};
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k?.startsWith('flixstar-')&&k!=='flixstar-sync-meta')data[k]=localStorage.getItem(k);
+    }
+    const blob=new Blob([JSON.stringify({app:'flixstar',version:1,exportedAt:new Date().toISOString(),data},null,2)],{type:'application/json'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`flixstar-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  };
+
+  const importData=file=>{
+    const reader=new FileReader();
+    reader.onload=()=>{
+      try{
+        const parsed=JSON.parse(reader.result);
+        const data=parsed?.data;
+        if(!data||typeof data!=='object')throw new Error('Not a Flixstar backup file');
+        Object.entries(data).forEach(([k,v])=>{
+          if(k.startsWith('flixstar-')&&k!=='flixstar-sync-meta'&&typeof v==='string')localStorage.setItem(k,v);
+        });
+        window.dispatchEvent(new Event('flixstar-sync-applied'));
+        window.dispatchEvent(new Event('flixstar-watch-progress'));
+        setSettings(readSettings());
+        refreshCounts();
+        setNote('Backup restored.');
+      }catch(e){
+        setNote(e.message||'Could not read that file.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <>
+      <SiteNav nav={nav}/>
+      <main className="settings-page">
+        <PageTitle title="Settings" subtitle="Manage your Flixstar account and preferences"/>
+
+        <h3 className="settings-group-title">Account</h3>
+        <div className="settings-card">
+          <AccountSettings/>
+        </div>
+
+        <h3 className="settings-group-title">Playback</h3>
+        <div className="settings-card">
+          <div className="setting">
+            <div>
+              <b>Resume where you left off</b>
+              <p>Start movies and episodes from your last position on servers that support it</p>
+            </div>
+            <SettingToggle label="Resume where you left off" on={settings.resumePlayback} onChange={v=>update({resumePlayback:v})}/>
+          </div>
+          <div className="setting">
+            <div>
+              <b>Save watch progress</b>
+              <p>Show titles you started in Continue Watching on the home page</p>
+            </div>
+            <SettingToggle label="Save watch progress" on={settings.trackProgress} onChange={v=>update({trackProgress:v})}/>
+          </div>
+          <div className="setting">
+            <div>
+              <b>Default server</b>
+              <p>The server the player opens with</p>
+            </div>
+            <select
+              className="settings-select"
+              value={settings.preferredServer}
+              onChange={e=>update({preferredServer:e.target.value})}
+            >
+              <option value="">Automatic</option>
+              {servers.map(n=><option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <h3 className="settings-group-title">Your data</h3>
+        <div className="settings-card">
+          <div className="setting">
+            <div>
+              <b>Continue Watching</b>
+              <p>{progressCount} title{progressCount===1?'':'s'} in progress</p>
+            </div>
+            <button
+              className="small-btn danger"
+              disabled={!progressCount}
+              onClick={()=>{
+                if(!confirm('Clear all Continue Watching progress?'))return;
+                localStorage.setItem('flixstar-watch-progress','[]');
+                window.dispatchEvent(new Event('flixstar-watch-progress'));
+                refreshCounts();
+              }}
+            >
+              Clear
+            </button>
+          </div>
+          <div className="setting">
+            <div>
+              <b>My Lists</b>
+              <p>{listCount} saved title{listCount===1?'':'s'}</p>
+            </div>
+            <button className="small-btn" onClick={()=>nav('/my-list')}>Open</button>
+          </div>
+          <div className="setting">
+            <div>
+              <b>Backup</b>
+              <p>Download your lists, progress and settings as a file, or restore one</p>
+              {note && <p className="setting-note">{note}</p>}
+            </div>
+            <div className="setting-actions">
+              <button className="small-btn" onClick={exportData}><Download size={14}/> Export</button>
+              <label className="small-btn">
+                Import
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  hidden
+                  onChange={e=>{const f=e.target.files?.[0];if(f)importData(f);e.target.value='';}}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <h3 className="settings-group-title">About</h3>
+        <div className="settings-card">
+          <div className="setting">
+            <div>
+              <b>Flixstar</b>
+              <p>Movie and TV data from TMDB · Episode ratings from IMDb</p>
+            </div>
+          </div>
+        </div>
+      </main>
+    </>
+  );
+}
+/*
+  ==========================================
+  RESUME PLAYBACK
+  Streams run inside third-party iframes, so we can't seek the video
+  ourselves. Some servers accept a start time in the embed URL — for
+  those we pass the saved position. Add more hosts here as needed.
+  ==========================================
+*/
+const RESUME_PARAMS=[
+  {match:/(^|\.)videasy\.(net|to)$/i,param:'progress'},
+  {match:/(^|\.)vidplus\.to$/i,param:'progress'},
+  {match:/(^|\.)vidlink\.pro$/i,param:'startAt'},
+  {match:/(^|\.)vidfast\.(pro|net)$/i,param:'startAt'}
+];
+
+function resumeParamFor(url){
+  try{
+    const host=new URL(url).hostname;
+    return RESUME_PARAMS.find(x=>x.match.test(host))?.param||null;
+  }catch{
+    return null;
+  }
+}
+
+function withResume(url,seconds){
+  const param=resumeParamFor(url);
+  if(!param||!seconds)return url;
+  try{
+    const u=new URL(url);
+    u.searchParams.set(param,String(Math.floor(seconds)));
+    return u.toString();
+  }catch{
+    return url;
+  }
+}
+
+function findSavedProgress(type,id,season,episode){
+  return readWatchProgress().find(x=>
+    String(x.id)===String(id) &&
+    x.type===type &&
+    (type!=='tv' || (
+      Number(x.season)===Number(season) &&
+      Number(x.episode)===Number(episode)
+    ))
+  )||null;
+}
+
 function Watch({titleId,type,nav}) {
 
   const qs=new URLSearchParams(location.search);
@@ -4671,6 +5173,7 @@ function Watch({titleId,type,nav}) {
   const [error,setError]=useState('');
 
   const [activeProvider,setActiveProvider]=useState(null);
+  const [resumeAt,setResumeAt]=useState(null);
 
   useEffect(()=>{
     let cancelled=false;
@@ -4716,8 +5219,30 @@ function Watch({titleId,type,nav}) {
         setD(details);
         setPlayback(player);
 
+        const settings=readSettings();
+        const saved=findSavedProgress(type,titleId,season,episode);
+        const resumeSeconds=
+          settings.resumePlayback &&
+          saved &&
+          saved.timestamp>=30 &&
+          (saved.progress??0)<0.95
+            ? Math.max(0,saved.timestamp-5)
+            : null;
+
+        setResumeAt(resumeSeconds);
+
         if(player?.providers?.length){
-          setActiveProvider(player.providers[0]);
+          const providers=player.providers;
+          const preferred=settings.preferredServer
+            ? providers.find(p=>p.name===settings.preferredServer)
+            : null;
+          const resumable=resumeSeconds
+            ? providers.find(p=>resumeParamFor(p.url))
+            : null;
+
+          // Your default server wins; otherwise, when there's a position
+          // to resume, open a server that can jump straight to it.
+          setActiveProvider(preferred||resumable||providers[0]);
         }
 
       }catch(err){
@@ -4956,6 +5481,10 @@ useEffect(()=>{
         type + id + season + episode
     */
 
+    if(readSettings().trackProgress===false){
+      return;
+    }
+
     saveWatchProgress(watchedItem);
 
   };
@@ -5069,7 +5598,7 @@ useEffect(()=>{
     <iframe
       key={activeProvider.id}
       title={`${t} player`}
-      src={activeProvider.url}
+      src={withResume(activeProvider.url,resumeAt)}
       allowFullScreen
       allow="autoplay; fullscreen; picture-in-picture"
       referrerPolicy="no-referrer-when-downgrade"
@@ -5126,6 +5655,32 @@ useEffect(()=>{
 
 
 
+
+      {resumeAt && activeProvider && (() => {
+        const supported=Boolean(resumeParamFor(activeProvider.url));
+        const alt=!supported
+          ? playback?.providers?.find(p=>resumeParamFor(p.url))
+          : null;
+
+        return (
+          <div className="resume-banner">
+            <RotateCcw size={16}/>
+            <span>
+              {supported
+                ? <>Resuming from <b>{formatTime(resumeAt)}</b></>
+                : <>You stopped at <b>{formatTime(resumeAt)}</b>. {activeProvider.name} can't jump there automatically. Skip ahead in the player{alt?' or switch server':''}.</>}
+            </span>
+            {alt && (
+              <button type="button" onClick={()=>setActiveProvider(alt)}>
+                Resume on {alt.name}
+              </button>
+            )}
+            <button type="button" className="ghost" onClick={()=>setResumeAt(null)}>
+              Start over
+            </button>
+          </div>
+        );
+      })()}
 
       {error && (
 
