@@ -5191,7 +5191,7 @@ const RESUME_PARAMS=[
   {match:/(^|\.)videasy\.(net|to)$/i,param:'progress'},
   {match:/(^|\.)vidplus\.to$/i,param:'progress'},
   {match:/(^|\.)vidlink\.pro$/i,param:'startAt'},
-  {match:/(^|\.)vidfast\.(pro|net)$/i,param:'startAt'}
+  {match:/(^|\.)vidfast\.(pro|net|vc)$/i,param:'startAt'}
 ];
 
 function resumeParamFor(url){
@@ -5604,13 +5604,10 @@ function Watch({titleId,type,nav}) {
           const preferred=settings.preferredServer
             ? providers.find(p=>p.name===settings.preferredServer)
             : null;
-          const resumable=resumeSeconds
-            ? providers.find(p=>resumeParamFor(p.url))
-            : null;
-
-          // Your default server wins; otherwise, when there's a position
-          // to resume, open a server that can jump straight to it.
-          setActiveProvider(preferred||resumable||providers[0]);
+          // Always open your default (or the first) server. If it can't
+          // resume, the banner offers a one-tap switch to one that can —
+          // never auto-switch, since a resume server may be down.
+          setActiveProvider(preferred||providers[0]);
         }
 
       }catch(err){
