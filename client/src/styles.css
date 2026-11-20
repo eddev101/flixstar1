@@ -4630,3 +4630,14 @@ button.toggle{border:0;padding:0;flex-shrink:0;cursor:pointer;transition:backgro
   .admin-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .admin-grid{grid-template-columns:1fr}
 }
+
+/* SIGN-IN WAITING + CALLBACK */
+.login-waiting{display:flex;gap:16px;align-items:flex-start}
+.login-waiting .spinner{flex-shrink:0;width:24px;height:24px;margin-top:2px}
+.login-links{display:flex;gap:14px;flex-wrap:wrap}
+.auth-callback{max-width:480px;margin:70px auto;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px}
+.auth-callback h1{margin:8px 0 0;font-size:28px}
+.auth-callback p{color:#b9c4be;line-height:1.6;margin:0}
+.auth-check{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;background:#1d3a24;color:#7ddc5a}
+.auth-check.error{background:#3a1d1d;color:#ff8d8d}
+.auth-callback .white-btn{margin-top:10px}

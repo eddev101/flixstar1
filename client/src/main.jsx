@@ -2,7 +2,7 @@ import React,{useEffect,useMemo,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Search,Settings,Home as HomeIcon,Plus,Info,Play,Copy,ChevronLeft,ChevronRight,Heart,Download,Eye,Clock3,CalendarDays,SlidersHorizontal,ArrowLeft,Share2,Check,UserRound,Bell,Film,MonitorPlay,Menu,X,ExternalLink,Volume2,Maximize,RotateCcw,Dices,ChevronDown,List} from 'lucide-react';
 import './styles.css';
-import {startSync,subscribeSync,getSyncState,syncNow,sendLoginCode,verifyLoginCode,signOut,syncConfigured,readSettings,writeSettings} from './sync.js';
+import {startSync,subscribeSync,getSyncState,syncNow,sendLoginCode,verifyLoginCode,signOut,syncConfigured,readSettings,writeSettings,handleAuthCallback,cancelPendingLogin} from './sync.js';
 
 import {checkIsAdmin,loadAdminData,getSiteConfig,setSiteConfig,computeStats} from './admin.js';
 import {startPwa,getInstallState,subscribeInstall,promptInstall} from './pwa.js';
@@ -335,6 +335,7 @@ if(path==='/my-list')
 />;
  if(path==='/settings')return <SettingsPage nav={nav}/>;
  if(path==='/admin')return <AdminPage nav={nav}/>;
+ if(path.startsWith('/auth/callback'))return <AuthCallbackPage nav={nav}/>;
  return <><Home
   nav={nav}
   listed={isListed}
@@ -4894,70 +4895,178 @@ function AccountSettings(){
     );
   }
 
+  const pending=sync.pendingLogin;
+  const shownErr=err||sync.loginError;
+
+  if(pending){
+    return (
+      <div className="setting setting-stack">
+        <div className="login-waiting">
+          <div className="spinner"/>
+          <div>
+            <b>Check your email</b>
+            <p>
+              We sent a sign-in link to <b>{pending.email}</b>. Tap it on <b>any</b> device or
+              browser. This {window.matchMedia?.('(display-mode: standalone)').matches?'app':'page'} will
+              sign in by itself a few seconds later.
+            </p>
+          </div>
+        </div>
+
+        {step==='code' ? (
+          <form
+            className="login-form"
+            onSubmit={e=>{
+              e.preventDefault();
+              run(async()=>{
+                await verifyLoginCode(pending.email,code);
+                cancelPendingLogin();
+              });
+            }}
+          >
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="6-digit code"
+              maxLength={10}
+              value={code}
+              onChange={e=>setCode(e.target.value.replace(/\s/g,''))}
+            />
+            <button className="white-btn" disabled={busy||code.length<6} type="submit">
+              {busy?'Checking…':'Sign in'}
+            </button>
+          </form>
+        ) : null}
+
+        <div className="login-links">
+          {step!=='code' && (
+            <button type="button" className="link-btn" onClick={()=>setStep('code')}>
+              Got a 6-digit code instead?
+            </button>
+          )}
+          <button
+            type="button"
+            className="link-btn"
+            onClick={()=>{cancelPendingLogin();setStep('email');setCode('');setMsg('');setErr('');}}
+          >
+            Use a different email / resend
+          </button>
+        </div>
+
+        {shownErr && <p className="setting-note error">{shownErr}</p>}
+      </div>
+    );
+  }
+
   return (
     <div className="setting setting-stack">
       <div>
         <b>Sign in to sync your devices</b>
         <p>
-          No password needed. Enter your email and we'll send you a 6-digit code.
-          Everything saved on this device is kept and merged into your account.
+          No password needed. Enter your email and we'll send you a sign-in link. You can open
+          the link on any device or browser. Everything saved here is kept and merged into your account.
         </p>
       </div>
 
-      {step==='email' ? (
-        <form
-          className="login-form"
-          onSubmit={e=>{
-            e.preventDefault();
-            const clean=email.trim();
-            if(!clean)return;
-            run(async()=>{
-              await sendLoginCode(clean);
-              setStep('code');
-              setMsg(`We sent a code to ${clean}. You can also just tap the link in the email.`);
-            });
-          }}
-        >
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={e=>setEmail(e.target.value)}
-          />
-          <button className="white-btn" disabled={busy} type="submit">
-            {busy?'Sending…':'Send code'}
-          </button>
-        </form>
-      ) : (
-        <form
-          className="login-form"
-          onSubmit={e=>{
-            e.preventDefault();
-            run(()=>verifyLoginCode(email.trim(),code));
-          }}
-        >
-          <input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="6-digit code"
-            maxLength={10}
-            value={code}
-            onChange={e=>setCode(e.target.value.replace(/\s/g,''))}
-          />
-          <button className="white-btn" disabled={busy||code.length<6} type="submit">
-            {busy?'Checking…':'Sign in'}
-          </button>
-          <button type="button" className="link-btn" onClick={()=>{setStep('email');setCode('');setMsg('');}}>
-            Use a different email
-          </button>
-        </form>
-      )}
+      <form
+        className="login-form"
+        onSubmit={e=>{
+          e.preventDefault();
+          const clean=email.trim();
+          if(!clean)return;
+          run(async()=>{
+            await sendLoginCode(clean);
+            setStep('email');
+          });
+        }}
+      >
+        <input
+          type="email"
+          required
+          autoComplete="email"
+          placeholder="you@example.com"
+          value={email}
+          onChange={e=>setEmail(e.target.value)}
+        />
+        <button className="white-btn" disabled={busy} type="submit">
+          {busy?'Sending…':'Send link'}
+        </button>
+      </form>
 
       {msg && <p className="setting-note">{msg}</p>}
-      {err && <p className="setting-note error">{err}</p>}
+      {shownErr && <p className="setting-note error">{shownErr}</p>}
     </div>
+  );
+}
+
+/*
+  ==========================================
+  /auth/callback — where the email link lands, in any browser
+  ==========================================
+*/
+function AuthCallbackPage({nav}){
+  const [state,setState]=useState({status:'working'});
+
+  useEffect(()=>{
+    let alive=true;
+    handleAuthCallback()
+      .then(result=>{
+        if(!alive)return;
+        history.replaceState({},'','/auth/callback');
+        if(result==='signed-in'){
+          nav('/settings');
+        }else{
+          setState({status:'handed-off'});
+        }
+      })
+      .catch(e=>{
+        if(!alive)return;
+        history.replaceState({},'','/auth/callback');
+        setState({
+          status:'error',
+          message:e?.code==='otp_expired'
+            ? 'This sign-in link has expired or was already used. Request a new one from Flixstar Settings.'
+            : /schema cache|function/i.test(e?.message||'')
+              ? 'Sign-in setup is not finished yet: run the latest supabase/schema.sql in your Supabase SQL Editor.'
+              : (e?.message||'Sign-in failed.')
+        });
+      });
+    return()=>{alive=false;};
+  },[]);
+
+  return (
+    <>
+      <SiteNav nav={nav}/>
+      <main className="settings-page">
+        <div className="auth-callback">
+          {state.status==='working' && (
+            <>
+              <div className="spinner"/>
+              <h1>Signing you in…</h1>
+            </>
+          )}
+          {state.status==='handed-off' && (
+            <>
+              <div className="auth-check"><Check size={30}/></div>
+              <h1>You're approved</h1>
+              <p>
+                Go back to Flixstar on the device or app where you asked to sign in. It will
+                finish signing in automatically within a few seconds.
+              </p>
+              <p className="admin-muted">You can close this tab.</p>
+            </>
+          )}
+          {state.status==='error' && (
+            <>
+              <div className="auth-check error"><X size={30}/></div>
+              <h1>Couldn't sign in</h1>
+              <p>{state.message}</p>
+              <button className="white-btn" onClick={()=>nav('/settings')}>Go to Settings</button>
+            </>
+          )}
+        </div>
+      </main>
+    </>
   );
 }
 

@@ -35,7 +35,11 @@ export const supabase = syncConfigured
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
+        // PKCE: the email link carries a one-time code that only the device
+        // that requested sign-in can redeem. We handle /auth/callback
+        // ourselves so the link works in any browser (see handoff below).
+        flowType: 'pkce',
+        detectSessionInUrl: false,
         storageKey: 'sb-flixstar-auth'
       }
     })
@@ -58,7 +62,9 @@ let state = {
   user: null,
   status: syncConfigured ? 'idle' : 'disabled', // idle | syncing | synced | error | disabled
   lastSyncedAt: readMeta().lastSyncedAt || null,
-  error: ''
+  error: '',
+  pendingLogin: null, // {h,email,at} while waiting for the email link
+  loginError: ''
 };
 
 const listeners = new Set();
@@ -290,16 +296,151 @@ export async function syncNow() {
 
 /* ---------- auth ---------- */
 
+/* ---------- cross-browser sign-in handoff ----------
+   1. This device asks for a link and remembers a random handoff id (h).
+   2. The link opens /auth/callback?h=…&code=… in whatever browser.
+   3. If that browser is this one, it signs in directly. Otherwise it
+      drops the code into login_handoffs under h.
+   4. This device polls for h, takes the code and redeems it with its own
+      PKCE verifier — so it gets its own independent session.            */
+
+const PENDING_KEY = 'fxs-login-pending'; // not "flixstar-" → never synced
+const PENDING_MAX_MS = 15 * 60 * 1000;
+const VERIFIER_KEY = 'sb-flixstar-auth-code-verifier';
+
+function readPending() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null');
+    if (p && Date.now() - p.at < PENDING_MAX_MS) return p;
+  } catch {}
+  return null;
+}
+
+function clearPending() {
+  rawRemove(PENDING_KEY);
+  setState({ pendingLogin: null });
+}
+
+export function getPendingLogin() {
+  return readPending();
+}
+
+export function cancelPendingLogin() {
+  clearPending();
+}
+
+const newId = () =>
+  crypto.randomUUID
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = (crypto.getRandomValues(new Uint8Array(1))[0] & 15);
+        return (c === 'x' ? r : (r & 3) | 8).toString(16);
+      });
+
 export async function sendLoginCode(email) {
   if (!supabase) throw new Error('Sync is not configured');
+  const h = newId();
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
       shouldCreateUser: true,
-      emailRedirectTo: `${location.origin}/settings`
+      emailRedirectTo: `${location.origin}/auth/callback?h=${h}`
     }
   });
   if (error) throw error;
+  const pending = { h, email, at: Date.now() };
+  rawSet(PENDING_KEY, JSON.stringify(pending));
+  setState({ pendingLogin: pending });
+  startHandoffPolling();
+}
+
+async function redeem(code) {
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) throw error;
+  clearPending();
+}
+
+let pollTimer = null;
+let polling = false;
+
+async function pollHandoffOnce() {
+  const pending = readPending();
+  if (!pending || state.user) {
+    stopHandoffPolling();
+    if (!pending) setState({ pendingLogin: null });
+    return;
+  }
+  if (polling) return;
+  polling = true;
+  try {
+    const { data, error } = await supabase.rpc('take_login_handoff', { h: pending.h });
+    if (error) {
+      // Network/setup problem — keep waiting and try again next tick.
+      console.warn('Sign-in handoff check failed:', error.message || error);
+      return;
+    }
+    if (data) {
+      try {
+        await redeem(data);
+      } catch (err) {
+        // The code arrived but couldn't be redeemed here (e.g. expired, or
+        // a newer link was requested since). Stop waiting and say so.
+        console.warn('Sign-in code redemption failed:', err?.message || err);
+        setState({ loginError: 'That link could not be used on this device. Please request a new one.' });
+        clearPending();
+      }
+    }
+  } finally {
+    polling = false;
+  }
+}
+
+function startHandoffPolling() {
+  if (pollTimer || !supabase) return;
+  pollTimer = setInterval(pollHandoffOnce, 2500);
+  pollHandoffOnce();
+}
+
+function stopHandoffPolling() {
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
+
+/* Runs on /auth/callback in whichever browser opened the email link.
+   Returns 'signed-in' | 'handed-off' | throws. */
+export async function handleAuthCallback() {
+  if (!supabase) throw new Error('Sync is not configured');
+
+  const query = new URLSearchParams(location.search);
+  const hash = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+  const errCode = query.get('error_code') || hash.get('error_code') || query.get('error') || hash.get('error');
+  if (errCode) {
+    const e = new Error(query.get('error_description') || hash.get('error_description') || errCode);
+    e.code = errCode;
+    throw e;
+  }
+
+  const code = query.get('code');
+  const h = query.get('h');
+  if (!code) throw new Error('This sign-in link is incomplete. Please request a new one.');
+
+  // Same browser that asked → sign in right here.
+  const pending = readPending();
+  if (localStorage.getItem(VERIFIER_KEY) && (!h || pending?.h === h)) {
+    try {
+      await redeem(code);
+      return 'signed-in';
+    } catch (err) {
+      if (!h) throw err;
+      // fall through to handoff
+    }
+  }
+
+  if (!h) throw new Error('Open this link on the device where you asked to sign in.');
+
+  const { error } = await supabase.rpc('put_login_handoff', { h, c: code });
+  if (error) throw error;
+  return 'handed-off';
 }
 
 export async function verifyLoginCode(email, token) {
@@ -351,12 +492,28 @@ export function startSync() {
   supabase.auth.onAuthStateChange((event, session) => {
     const user = session?.user || null;
     const changed = user?.id !== state.user?.id;
-    setState({ user });
+    if (user) {
+      stopHandoffPolling();
+      if (readPending()) clearPending();
+    }
+    setState({ user, loginError: user ? '' : state.loginError });
     if (user && changed) syncNow();
   });
 
+  // Resume waiting for a sign-in started earlier (e.g. app was closed
+  // while you went to your email).
+  if (readPending()) {
+    setState({ pendingLogin: readPending() });
+    startHandoffPolling();
+  }
+
   const pull = () => {
-    if (document.visibilityState === 'visible') syncNow();
+    if (document.visibilityState !== 'visible') return;
+    if (readPending() && !state.user) {
+      startHandoffPolling();
+      pollHandoffOnce();
+    }
+    syncNow();
   };
   document.addEventListener('visibilitychange', pull);
   window.addEventListener('focus', pull);

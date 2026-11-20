@@ -93,3 +93,53 @@ create policy "public read config" on public.site_config
   for select using (true);
 create policy "admin write config" on public.site_config
   for all using (public.is_admin()) with check (public.is_admin());
+
+-- =====================================================================
+-- CROSS-BROWSER SIGN-IN HANDOFF  (safe to re-run)
+-- Lets you tap the email link in ANY browser/device and have the
+-- device/app that asked to sign in log itself in.
+-- The link carries a one-time PKCE auth code. It's useless without the
+-- secret "code verifier" that only the requesting device holds, so
+-- passing it through this table is safe. Rows expire after 15 minutes.
+-- =====================================================================
+
+create table if not exists public.login_handoffs (
+  id         uuid primary key,
+  code       text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.login_handoffs enable row level security;
+-- No policies: only the two functions below can touch this table.
+
+create or replace function public.put_login_handoff(h uuid, c text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.login_handoffs where created_at < now() - interval '15 minutes';
+  if length(c) > 200 then raise exception 'invalid code'; end if;
+  insert into public.login_handoffs (id, code) values (h, c)
+  on conflict (id) do update set code = excluded.code, created_at = now();
+end;
+$$;
+
+create or replace function public.take_login_handoff(h uuid)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result text;
+begin
+  delete from public.login_handoffs
+  where id = h and created_at > now() - interval '15 minutes'
+  returning code into result;
+  return result;
+end;
+$$;
+
+grant execute on function public.put_login_handoff(uuid, text) to anon, authenticated;
+grant execute on function public.take_login_handoff(uuid) to anon, authenticated;
